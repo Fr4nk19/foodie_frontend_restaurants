@@ -11,6 +11,10 @@ import AdminDashboard from '../pages/admin/AdminDashboard';
 import AdminOrdersPage from '../pages/admin/AdminOrdersPage';
 import AdminTablesPage from '../pages/admin/AdminTablesPage';
 import AdminStaffPage from '../pages/admin/AdminStaffPage';
+import AdminProductsPage from '../pages/admin/AdminProductsPage';
+import AdminProductCategoriesPage from '../pages/admin/AdminProductCategoriesPage';
+import AdminBranchesPage from '../pages/admin/AdminBranchesPage';
+import AdminUsersPage from '../pages/admin/AdminUsersPage';
 
 // Kitchen
 import KitchenPage from '../pages/kitchen/KitchenPage';
@@ -39,6 +43,10 @@ export default function AppRouter() {
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="/admin/orders" element={<AdminOrdersPage />} />
           <Route path="/admin/tables" element={<AdminTablesPage />} />
+          <Route path="/admin/products" element={<AdminProductsPage />} />
+          <Route path="/admin/categories" element={<AdminProductCategoriesPage />} />
+          <Route path="/admin/branches" element={<AdminBranchesPage />} />
+          <Route path="/admin/users" element={<AdminUsersPage />} />
           <Route path="/admin/staff" element={<AdminStaffPage />} />
           <Route path="/admin/settings" element={<AdminSettingsPlaceholder />} />
         </Route>
