@@ -1,20 +1,24 @@
 import api from './axios';
 
-// Orders scoped to a branch
-export const getOrders = (branchId, params = {}) =>
-  api.get(`/branches/${branchId}/orders`, { params });
+// NOTE: These endpoints are not yet implemented in the backend.
+// When added, they should follow the pattern:
+// /api/v1/companies/{company}/branches/{branch}/orders
+// The functions below use the expected URL structure.
 
-export const getOrder = (branchId, orderId) =>
-  api.get(`/branches/${branchId}/orders/${orderId}`);
+export const getOrders = (companyId, branchId, params = {}) =>
+  api.get(`/companies/${companyId}/branches/${branchId}/orders`, { params });
 
-export const createOrder = (branchId, data) =>
-  api.post(`/branches/${branchId}/orders`, data);
+export const getOrder = (companyId, branchId, orderId) =>
+  api.get(`/companies/${companyId}/branches/${branchId}/orders/${orderId}`);
 
-export const updateOrderStatus = (branchId, orderId, status) =>
-  api.patch(`/branches/${branchId}/orders/${orderId}/status`, { status });
+export const createOrder = (companyId, branchId, data) =>
+  api.post(`/companies/${companyId}/branches/${branchId}/orders`, data);
 
-export const updateOrder = (branchId, orderId, data) =>
-  api.put(`/branches/${branchId}/orders/${orderId}`, data);
+export const updateOrder = (companyId, branchId, orderId, data) =>
+  api.put(`/companies/${companyId}/branches/${branchId}/orders/${orderId}`, data);
 
-export const cancelOrder = (branchId, orderId, reason) =>
-  api.delete(`/branches/${branchId}/orders/${orderId}`, { data: { reason } });
+export const updateOrderStatus = (companyId, branchId, orderId, status) =>
+  api.patch(`/companies/${companyId}/branches/${branchId}/orders/${orderId}/status`, { status });
+
+export const cancelOrder = (companyId, branchId, orderId, reason) =>
+  api.delete(`/companies/${companyId}/branches/${branchId}/orders/${orderId}`, { data: { reason } });
