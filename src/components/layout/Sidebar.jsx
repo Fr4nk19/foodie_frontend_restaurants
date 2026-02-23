@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   UtensilsCrossed, LayoutDashboard, ClipboardList,
   ChefHat, Users, LogOut, TableProperties, Settings,
+  Package, Tag, MapPin, UserCog,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -67,7 +68,13 @@ export default function Sidebar() {
               <NavItem to="/admin/orders" icon={ClipboardList} label="Pedidos" />
               <NavItem to="/admin/tables" icon={TableProperties} label="Mesas" />
             </NavSection>
+            <NavSection title="Catálogo">
+              <NavItem to="/admin/products" icon={Package} label="Productos" />
+              <NavItem to="/admin/categories" icon={Tag} label="Categorías" />
+            </NavSection>
             <NavSection title="Gestión">
+              <NavItem to="/admin/branches" icon={MapPin} label="Sucursales" />
+              <NavItem to="/admin/users" icon={UserCog} label="Usuarios" />
               <NavItem to="/admin/staff" icon={Users} label="Personal" />
               <NavItem to="/admin/settings" icon={Settings} label="Configuración" />
             </NavSection>
