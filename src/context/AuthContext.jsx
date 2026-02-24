@@ -5,22 +5,32 @@ import api from '../api/axios';
 
 const AuthContext = createContext(null);
 
+function normalizeUser(u) {
+  if (!u) return null;
+  return {
+    ...u,
+    company_id: u.company_id || u.company?.id || null,
+    branch_id: u.branch_id || u.branch?.id || null,
+  };
+}
+
 export function AuthProvider({ children }) {
   const [token, setTokenState] = useState(getToken);
-  const [user, setUserState] = useState(getUser);
+  const [user, setUserState] = useState(() => normalizeUser(getUser()));
 
   const isAuthenticated = Boolean(token);
 
   const signIn = useCallback(async ({ email, password }) => {
     const res = await apiLogin({ email, password });
     const { token: newToken, user: newUser } = res.data;
+    const normalized = normalizeUser(newUser);
     setToken(newToken);
-    setUser(newUser);
+    setUser(normalized);
     setTokenState(newToken);
-    setUserState(newUser);
+    setUserState(normalized);
     // Inject token immediately for subsequent requests
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-    return newUser;
+    return normalized;
   }, []);
 
   const signOut = useCallback(async () => {
@@ -37,7 +47,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   // Role helpers
-  const isAdmin = user?.role === 'company_admin' || user?.role === 'branch_manager';
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'company_admin' || user?.role === 'branch_manager';
   const isKitchen = user?.role === 'employee' && user?.job_type === 'kitchen';
   const isWaiter = user?.role === 'employee' && user?.job_type === 'waiter';
   // If no job_type set, treat all employees as able to see both kitchen and waiter
