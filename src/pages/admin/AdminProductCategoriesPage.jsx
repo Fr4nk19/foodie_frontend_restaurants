@@ -112,7 +112,11 @@ export default function AdminProductCategoriesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const fetchCategories = useCallback(async () => {
-    if (!companyId) return;
+    if (!companyId) {
+      setLoading(false);
+      setError('No se encontró la empresa del usuario.');
+      return;
+    }
     try {
       setLoading(true);
       const res = await getProductCategories(companyId, { per_page: 200 });

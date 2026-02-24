@@ -156,7 +156,11 @@ export default function AdminBranchesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const fetchBranches = useCallback(async () => {
-    if (!companyId) return;
+    if (!companyId) {
+      setLoading(false);
+      setError('No se encontró la empresa del usuario.');
+      return;
+    }
     try {
       setLoading(true);
       const res = await getBranches(companyId);
