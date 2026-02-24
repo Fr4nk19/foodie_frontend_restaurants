@@ -4,66 +4,9 @@ import {
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
-
-// Mock orders for kitchen - replace with real API + polling/websocket
-const INITIAL_KITCHEN_ORDERS = [
-  {
-    id: 1,
-    orderNumber: 'ORD-001',
-    table: 'Mesa 3',
-    type: 'dine_in',
-    status: 'pending',
-    priority: 'high',
-    items: [
-      { id: 1, name: 'Tacos de carne asada', qty: 2, notes: 'Sin cebolla', done: false },
-      { id: 2, name: 'Quesadilla de pollo', qty: 1, notes: '', done: false },
-    ],
-    receivedAt: new Date(Date.now() - 5 * 60 * 1000), // 5 min ago
-    waiter: 'Juan Pérez',
-  },
-  {
-    id: 2,
-    orderNumber: 'ORD-002',
-    table: 'Mesa 7',
-    type: 'dine_in',
-    status: 'preparing',
-    priority: 'normal',
-    items: [
-      { id: 3, name: 'Pizza Margherita', qty: 1, notes: 'Extra queso', done: false },
-      { id: 4, name: 'Ensalada César', qty: 1, notes: '', done: true },
-    ],
-    receivedAt: new Date(Date.now() - 12 * 60 * 1000), // 12 min ago
-    waiter: 'Ana López',
-  },
-  {
-    id: 3,
-    orderNumber: 'ORD-003',
-    table: 'Para llevar',
-    type: 'takeout',
-    status: 'preparing',
-    priority: 'urgent',
-    items: [
-      { id: 5, name: 'Hamburguesa clásica', qty: 2, notes: 'Bien cocida', done: false },
-      { id: 6, name: 'Papas fritas', qty: 2, notes: '', done: true },
-    ],
-    receivedAt: new Date(Date.now() - 18 * 60 * 1000), // 18 min ago
-    waiter: 'Carlos Ruiz',
-  },
-  {
-    id: 4,
-    orderNumber: 'ORD-004',
-    table: 'Mesa 1',
-    type: 'dine_in',
-    status: 'pending',
-    priority: 'normal',
-    items: [
-      { id: 7, name: 'Pasta carbonara', qty: 2, notes: '', done: false },
-      { id: 8, name: 'Sopa del día', qty: 1, notes: 'Muy caliente', done: false },
-    ],
-    receivedAt: new Date(Date.now() - 2 * 60 * 1000), // 2 min ago
-    waiter: 'Juan Pérez',
-  },
-];
+import Spinner from '../../components/ui/Spinner';
+import { useAuth } from '../../context/AuthContext';
+import { getOrders, updateOrderStatus, toggleOrderItem } from '../../api/orders';
 
 const PRIORITY_CONFIG = {
   urgent: { label: 'URGENTE', color: 'bg-red-500 text-white', border: 'border-red-400' },
@@ -93,9 +36,13 @@ function elapsedColor(date) {
 }
 
 function KitchenOrderCard({ order, onAdvance, onToggleItem }) {
-  const priority = PRIORITY_CONFIG[order.priority];
-  const doneCount = order.items.filter((i) => i.done).length;
-  const allDone = doneCount === order.items.length;
+  const priority = PRIORITY_CONFIG[order.priority] || PRIORITY_CONFIG.normal;
+  const items = order.items || [];
+  const doneCount = items.filter((i) => i.is_done).length;
+  const allDone = doneCount === items.length;
+
+  const tableName = order.table ? `Mesa ${order.table.number}` : (order.type === 'takeout' ? 'Para llevar' : 'Delivery');
+  const waiterName = order.waiter?.name || '—';
 
   return (
     <div className={`bg-white rounded-xl border-2 ${priority.border} shadow-sm overflow-hidden`}>
@@ -103,38 +50,38 @@ function KitchenOrderCard({ order, onAdvance, onToggleItem }) {
       <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-2">
         <div>
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="font-bold text-gray-900">{order.table}</span>
+            <span className="font-bold text-gray-900">{tableName}</span>
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priority.color}`}>
               {priority.label}
             </span>
           </div>
-          <p className="text-xs text-gray-500">{order.orderNumber} · {order.waiter}</p>
+          <p className="text-xs text-gray-500">#{order.id} · {waiterName}</p>
         </div>
-        <div className={`flex items-center gap-1 text-xs ${elapsedColor(order.receivedAt)}`}>
+        <div className={`flex items-center gap-1 text-xs ${elapsedColor(order.created_at)}`}>
           <Clock className="w-3.5 h-3.5" />
-          {elapsed(order.receivedAt)}
+          {elapsed(order.created_at)}
         </div>
       </div>
 
       {/* Items */}
       <div className="px-4 pb-3">
         <div className="flex flex-col gap-2">
-          {order.items.map((item) => (
+          {items.map((item) => (
             <button
               key={item.id}
               onClick={() => onToggleItem(order.id, item.id)}
               className={`flex items-start gap-3 p-2.5 rounded-lg text-left transition-colors ${
-                item.done ? 'bg-emerald-50 opacity-60' : 'bg-gray-50 hover:bg-gray-100'
+                item.is_done ? 'bg-emerald-50 opacity-60' : 'bg-gray-50 hover:bg-gray-100'
               }`}
             >
               <div className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-colors ${
-                item.done ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300'
+                item.is_done ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300'
               }`}>
-                {item.done && <CheckCircle2 className="w-3 h-3 text-white" />}
+                {item.is_done && <CheckCircle2 className="w-3 h-3 text-white" />}
               </div>
               <div className="min-w-0">
-                <p className={`text-sm font-medium ${item.done ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-                  {item.qty}x {item.name}
+                <p className={`text-sm font-medium ${item.is_done ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                  {item.quantity}x {item.product?.nombre || 'Producto'}
                 </p>
                 {item.notes && (
                   <p className="text-xs text-amber-600 mt-0.5">Nota: {item.notes}</p>
@@ -145,18 +92,20 @@ function KitchenOrderCard({ order, onAdvance, onToggleItem }) {
         </div>
 
         {/* Progress bar */}
-        <div className="mt-3">
-          <div className="flex justify-between text-xs text-gray-400 mb-1">
-            <span>Progreso</span>
-            <span>{doneCount}/{order.items.length}</span>
+        {items.length > 0 && (
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-gray-400 mb-1">
+              <span>Progreso</span>
+              <span>{doneCount}/{items.length}</span>
+            </div>
+            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                style={{ width: `${(doneCount / items.length) * 100}%` }}
+              />
+            </div>
           </div>
-          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-              style={{ width: `${(doneCount / order.items.length) * 100}%` }}
-            />
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Action */}
@@ -182,7 +131,7 @@ function KitchenOrderCard({ order, onAdvance, onToggleItem }) {
               className="w-full"
             >
               <CheckCircle2 className="w-4 h-4" />
-              {allDone ? 'Marcar como listo' : `Faltan ${order.items.length - doneCount} ítems`}
+              {allDone ? 'Marcar como listo' : `Faltan ${items.length - doneCount} ítems`}
             </Button>
           )}
         </div>
@@ -201,7 +150,13 @@ function KitchenOrderCard({ order, onAdvance, onToggleItem }) {
 }
 
 export default function KitchenPage() {
-  const [orders, setOrders] = useState(INITIAL_KITCHEN_ORDERS);
+  const { user } = useAuth();
+  const companyId = user?.company_id;
+  const branchId = user?.branch_id;
+
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [tick, setTick] = useState(0);
 
@@ -211,28 +166,61 @@ export default function KitchenPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleAdvance = (orderId, newStatus) => {
-    setOrders((prev) =>
-      prev.map((o) => o.id === orderId ? { ...o, status: newStatus } : o)
-    );
+  const fetchOrders = useCallback(async () => {
+    if (!companyId || !branchId) return;
+    try {
+      setLoading(true);
+      const res = await getOrders(companyId, branchId, {
+        status: 'pending,preparing,ready',
+        per_page: 100,
+        today: 1,
+      });
+      setOrders(res.data.data || []);
+      setLastUpdated(new Date());
+    } catch {
+      setError('No se pudieron cargar los pedidos');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, branchId]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(fetchOrders, 30000);
+    return () => clearInterval(interval);
+  }, [fetchOrders]);
+
+  const handleAdvance = async (orderId, newStatus) => {
+    try {
+      await updateOrderStatus(companyId, branchId, orderId, newStatus);
+      await fetchOrders();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error al actualizar el pedido');
+    }
   };
 
-  const handleToggleItem = (orderId, itemId) => {
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === orderId
-          ? { ...o, items: o.items.map((i) => i.id === itemId ? { ...i, done: !i.done } : i) }
-          : o
-      )
-    );
-  };
-
-  const handleRefresh = () => {
-    setLastUpdated(new Date());
-    // TODO: fetch real orders from API
+  const handleToggleItem = async (orderId, itemId) => {
+    try {
+      await toggleOrderItem(companyId, branchId, orderId, itemId);
+      await fetchOrders();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error al actualizar el ítem');
+    }
   };
 
   const pendingCount = orders.filter((o) => o.status === 'pending').length;
+
+  if (loading && orders.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <Spinner className="w-8 h-8 text-white" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -258,7 +246,7 @@ export default function KitchenPage() {
               </div>
             )}
             <button
-              onClick={handleRefresh}
+              onClick={fetchOrders}
               className="text-gray-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-gray-800"
             >
               <RefreshCw className="w-5 h-5" />
@@ -266,6 +254,14 @@ export default function KitchenPage() {
           </div>
         </div>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="mx-6 mt-4 p-3 bg-red-900/50 border border-red-700 text-red-300 text-sm rounded-lg flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200 font-medium">✕</button>
+        </div>
+      )}
 
       {/* Kanban columns */}
       <div className="p-6 max-w-7xl mx-auto">

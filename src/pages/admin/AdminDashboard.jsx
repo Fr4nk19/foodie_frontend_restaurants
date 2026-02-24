@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   ClipboardList, TableProperties, Users, TrendingUp,
   Clock, CheckCircle2, AlertCircle, ChefHat,
@@ -6,24 +6,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import Spinner from '../../components/ui/Spinner';
 import Badge from '../../components/ui/Badge';
-
-// Mock data – replace with real API calls when orders endpoint is ready
-const MOCK_STATS = {
-  pendingOrders: 5,
-  inProgressOrders: 3,
-  completedToday: 28,
-  activeTables: 7,
-  totalTables: 12,
-  staff: 8,
-};
-
-const MOCK_RECENT_ORDERS = [
-  { id: 1, table: 'Mesa 3', items: 4, status: 'pending', time: '12:34' },
-  { id: 2, table: 'Mesa 7', items: 2, status: 'preparing', time: '12:30' },
-  { id: 3, table: 'Mesa 1', items: 6, status: 'ready', time: '12:25' },
-  { id: 4, table: 'Mesa 5', items: 3, status: 'delivered', time: '12:15' },
-  { id: 5, table: 'Para llevar', items: 1, status: 'preparing', time: '12:10' },
-];
+import { getDashboardStats } from '../../api/dashboard';
 
 const STATUS_MAP = {
   pending: { label: 'Pendiente', variant: 'warning' },
@@ -63,7 +46,41 @@ function getGreeting() {
 
 export default function AdminDashboard() {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const companyId = user?.company_id;
+  const branchId = user?.branch_id;
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [stats, setStats] = useState({
+    pending_orders: 0,
+    in_progress_orders: 0,
+    completed_today: 0,
+    active_tables: 0,
+    total_tables: 0,
+    staff: 0,
+  });
+  const [recentOrders, setRecentOrders] = useState([]);
+
+  const fetchDashboard = useCallback(async () => {
+    if (!companyId || !branchId) {
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await getDashboardStats(companyId, branchId);
+      setStats(res.data.data.stats || {});
+      setRecentOrders(res.data.data.recent_orders || []);
+    } catch {
+      setError('No se pudo cargar el dashboard');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, branchId]);
+
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -75,33 +92,41 @@ export default function AdminDashboard() {
         <p className="text-gray-500 mt-1">Resumen del día en el restaurante</p>
       </div>
 
+      {/* Error */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-medium">✕</button>
+        </div>
+      )}
+
       {/* Stats grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
         <StatCard
           icon={Clock}
           label="Pedidos pendientes"
-          value={MOCK_STATS.pendingOrders}
+          value={stats.pending_orders}
           sub="En espera de ser tomados"
           color="amber"
         />
         <StatCard
           icon={ChefHat}
           label="En preparación"
-          value={MOCK_STATS.inProgressOrders}
+          value={stats.in_progress_orders}
           sub="Siendo preparados en cocina"
           color="blue"
         />
         <StatCard
           icon={CheckCircle2}
           label="Completados hoy"
-          value={MOCK_STATS.completedToday}
+          value={stats.completed_today}
           sub="Pedidos entregados"
           color="emerald"
         />
         <StatCard
           icon={TableProperties}
           label="Mesas ocupadas"
-          value={`${MOCK_STATS.activeTables}/${MOCK_STATS.totalTables}`}
+          value={`${stats.active_tables}/${stats.total_tables}`}
           sub="Capacidad del salón"
           color="brand"
         />
@@ -118,6 +143,8 @@ export default function AdminDashboard() {
 
         {loading ? (
           <div className="flex justify-center py-8"><Spinner /></div>
+        ) : recentOrders.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">No hay pedidos hoy</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -131,17 +158,20 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {MOCK_RECENT_ORDERS.map((order) => {
+                {recentOrders.map((order) => {
                   const status = STATUS_MAP[order.status] || { label: order.status, variant: 'gray' };
+                  const tableName = order.table ? `Mesa ${order.table.number}` : (order.type === 'takeout' ? 'Para llevar' : 'Delivery');
+                  const orderTime = order.created_at ? new Date(order.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : '';
+                  const itemCount = order.items?.length || order.items_count || 0;
                   return (
                     <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                       <td className="py-3 text-gray-400">#{order.id}</td>
-                      <td className="py-3 font-medium text-gray-900">{order.table}</td>
-                      <td className="py-3 text-gray-600">{order.items} productos</td>
+                      <td className="py-3 font-medium text-gray-900">{tableName}</td>
+                      <td className="py-3 text-gray-600">{itemCount} productos</td>
                       <td className="py-3">
                         <Badge variant={status.variant}>{status.label}</Badge>
                       </td>
-                      <td className="py-3 text-gray-500">{order.time}</td>
+                      <td className="py-3 text-gray-500">{orderTime}</td>
                     </tr>
                   );
                 })}

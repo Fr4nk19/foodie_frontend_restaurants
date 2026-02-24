@@ -1,8 +1,11 @@
-import { useState } from 'react';
-import { Filter, RefreshCw, Plus } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, Plus } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
+import Spinner from '../../components/ui/Spinner';
+import { useAuth } from '../../context/AuthContext';
+import { getOrders, updateOrderStatus } from '../../api/orders';
 
 const STATUS_TABS = [
   { key: 'all', label: 'Todos' },
@@ -21,37 +24,6 @@ const STATUS_MAP = {
   cancelled: { label: 'Cancelado', variant: 'error' },
 };
 
-const MOCK_ORDERS = [
-  {
-    id: 1, table: 'Mesa 3', waiter: 'Juan Pérez', items: [
-      { name: 'Tacos de carne', qty: 2, price: 45 },
-      { name: 'Agua mineral', qty: 2, price: 20 },
-    ], status: 'pending', time: '12:34', total: 130,
-  },
-  {
-    id: 2, table: 'Mesa 7', waiter: 'Ana López', items: [
-      { name: 'Pizza Margherita', qty: 1, price: 120 },
-    ], status: 'preparing', time: '12:30', total: 120,
-  },
-  {
-    id: 3, table: 'Mesa 1', waiter: 'Juan Pérez', items: [
-      { name: 'Pasta carbonara', qty: 2, price: 95 },
-      { name: 'Refresco', qty: 2, price: 30 },
-      { name: 'Postre del día', qty: 1, price: 55 },
-    ], status: 'ready', time: '12:25', total: 305,
-  },
-  {
-    id: 4, table: 'Mesa 5', waiter: 'Carlos Ruiz', items: [
-      { name: 'Hamburguesa clásica', qty: 3, price: 85 },
-    ], status: 'delivered', time: '12:15', total: 255,
-  },
-  {
-    id: 5, table: 'Para llevar', waiter: 'Ana López', items: [
-      { name: 'Ensalada César', qty: 1, price: 70 },
-    ], status: 'preparing', time: '12:10', total: 70,
-  },
-];
-
 function OrderDetailModal({ order, onClose, onStatusChange }) {
   if (!order) return null;
   const status = STATUS_MAP[order.status];
@@ -64,13 +36,19 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
   const nextStatus = NEXT_STATUS[order.status];
   const nextLabel = nextStatus ? STATUS_MAP[nextStatus]?.label : null;
 
+  const tableName = order.table ? `Mesa ${order.table.number}` : (order.type === 'takeout' ? 'Para llevar' : 'Delivery');
+  const waiterName = order.waiter?.name || '—';
+  const orderTime = order.created_at ? new Date(order.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : '';
+  const items = order.items || [];
+  const total = Number(order.total) || 0;
+
   return (
-    <Modal open={Boolean(order)} onClose={onClose} title={`Pedido #${order.id} – ${order.table}`} size="md">
+    <Modal open={Boolean(order)} onClose={onClose} title={`Pedido #${order.id} – ${tableName}`} size="md">
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-500">Mesero: <span className="font-medium text-gray-900">{order.waiter}</span></p>
-            <p className="text-sm text-gray-500">Hora: <span className="font-medium text-gray-900">{order.time}</span></p>
+            <p className="text-sm text-gray-500">Mesero: <span className="font-medium text-gray-900">{waiterName}</span></p>
+            <p className="text-sm text-gray-500">Hora: <span className="font-medium text-gray-900">{orderTime}</span></p>
           </div>
           <Badge variant={status.variant}>{status.label}</Badge>
         </div>
@@ -78,15 +56,15 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
         <div>
           <p className="text-sm font-medium text-gray-700 mb-2">Productos</p>
           <div className="border border-gray-100 rounded-lg overflow-hidden">
-            {order.items.map((item, i) => (
-              <div key={i} className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-0 text-sm">
-                <span className="text-gray-900">{item.qty}x {item.name}</span>
-                <span className="text-gray-600 font-medium">${(item.qty * item.price).toFixed(2)}</span>
+            {items.map((item) => (
+              <div key={item.id} className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-0 text-sm">
+                <span className="text-gray-900">{item.quantity}x {item.product?.nombre || 'Producto'}</span>
+                <span className="text-gray-600 font-medium">${Number(item.subtotal).toFixed(2)}</span>
               </div>
             ))}
             <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 text-sm font-semibold">
               <span>Total</span>
-              <span>${order.total.toFixed(2)}</span>
+              <span>${total.toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -115,16 +93,52 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
 }
 
 export default function AdminOrdersPage() {
+  const { user } = useAuth();
+  const companyId = user?.company_id;
+  const branchId = user?.branch_id;
+
   const [activeTab, setActiveTab] = useState('all');
-  const [orders, setOrders] = useState(MOCK_ORDERS);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+
+  const fetchOrders = useCallback(async () => {
+    if (!companyId || !branchId) return;
+    try {
+      setLoading(true);
+      const res = await getOrders(companyId, branchId, { per_page: 100, today: 1 });
+      setOrders(res.data.data || []);
+    } catch {
+      setError('No se pudieron cargar los pedidos');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, branchId]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
 
   const filtered = activeTab === 'all' ? orders : orders.filter((o) => o.status === activeTab);
 
-  const handleStatusChange = (orderId, newStatus) => {
-    setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: newStatus } : o));
-    setSelectedOrder(null);
+  const handleStatusChange = async (orderId, newStatus) => {
+    try {
+      await updateOrderStatus(companyId, branchId, orderId, newStatus);
+      setSelectedOrder(null);
+      await fetchOrders();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error al actualizar el estado');
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Spinner className="w-8 h-8" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -135,16 +149,20 @@ export default function AdminOrdersPage() {
           <p className="text-gray-500 mt-1">Gestión de todos los pedidos del restaurante</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" onClick={fetchOrders}>
             <RefreshCw className="w-4 h-4" />
             Actualizar
           </Button>
-          <Button size="sm">
-            <Plus className="w-4 h-4" />
-            Nuevo pedido
-          </Button>
         </div>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-medium">✕</button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
@@ -182,6 +200,12 @@ export default function AdminOrdersPage() {
         )}
         {filtered.map((order) => {
           const status = STATUS_MAP[order.status];
+          const tableName = order.table ? `Mesa ${order.table.number}` : (order.type === 'takeout' ? 'Para llevar' : 'Delivery');
+          const waiterName = order.waiter?.name || '—';
+          const orderTime = order.created_at ? new Date(order.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : '';
+          const items = order.items || [];
+          const total = Number(order.total) || 0;
+
           return (
             <button
               key={order.id}
@@ -190,22 +214,22 @@ export default function AdminOrdersPage() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <p className="font-semibold text-gray-900">{order.table}</p>
-                  <p className="text-xs text-gray-400">{order.waiter} · {order.time}</p>
+                  <p className="font-semibold text-gray-900">{tableName}</p>
+                  <p className="text-xs text-gray-400">{waiterName} · {orderTime}</p>
                 </div>
                 <Badge variant={status.variant}>{status.label}</Badge>
               </div>
               <div className="text-sm text-gray-600 mb-3">
-                {order.items.slice(0, 2).map((item, i) => (
-                  <p key={i}>{item.qty}x {item.name}</p>
+                {items.slice(0, 2).map((item) => (
+                  <p key={item.id}>{item.quantity}x {item.product?.nombre || 'Producto'}</p>
                 ))}
-                {order.items.length > 2 && (
-                  <p className="text-gray-400">+{order.items.length - 2} más</p>
+                {items.length > 2 && (
+                  <p className="text-gray-400">+{items.length - 2} más</p>
                 )}
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-gray-100">
                 <p className="text-xs text-gray-400">#{order.id}</p>
-                <p className="font-semibold text-gray-900">${order.total.toFixed(2)}</p>
+                <p className="font-semibold text-gray-900">${total.toFixed(2)}</p>
               </div>
             </button>
           );
