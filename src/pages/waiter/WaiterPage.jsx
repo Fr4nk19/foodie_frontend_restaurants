@@ -1,35 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   TableProperties, Plus, Users, Clock,
-  CheckCircle2, X, ShoppingCart, ChefHat,
+  CheckCircle2, X, ShoppingCart, ChefHat, RefreshCw,
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
-
-// Mock data
-const MOCK_TABLES = [
-  { id: 1, number: 1, capacity: 2, status: 'available', zone: 'Interior', order: null },
-  { id: 2, number: 2, capacity: 4, status: 'occupied', zone: 'Interior', order: { id: 'ORD-005', status: 'preparing', items: 3, total: 210 } },
-  { id: 3, number: 3, capacity: 4, status: 'occupied', zone: 'Interior', order: { id: 'ORD-001', status: 'ready', items: 4, total: 320 } },
-  { id: 4, number: 4, capacity: 6, status: 'available', zone: 'Interior', order: null },
-  { id: 5, number: 5, capacity: 2, status: 'reserved', zone: 'Terraza', order: null },
-  { id: 6, number: 6, capacity: 4, status: 'available', zone: 'Terraza', order: null },
-  { id: 7, number: 7, capacity: 8, status: 'occupied', zone: 'Terraza', order: { id: 'ORD-003', status: 'pending', items: 6, total: 580 } },
-];
-
-const MOCK_MENU = [
-  { id: 1, name: 'Tacos de carne asada', price: 65, category: 'Platos principales' },
-  { id: 2, name: 'Pizza Margherita', price: 120, category: 'Platos principales' },
-  { id: 3, name: 'Pasta carbonara', price: 95, category: 'Platos principales' },
-  { id: 4, name: 'Hamburguesa clásica', price: 85, category: 'Platos principales' },
-  { id: 5, name: 'Ensalada César', price: 70, category: 'Ensaladas' },
-  { id: 6, name: 'Sopa del día', price: 45, category: 'Entradas' },
-  { id: 7, name: 'Agua mineral', price: 20, category: 'Bebidas' },
-  { id: 8, name: 'Refresco', price: 30, category: 'Bebidas' },
-  { id: 9, name: 'Jugo natural', price: 40, category: 'Bebidas' },
-  { id: 10, name: 'Postre del día', price: 55, category: 'Postres' },
-];
+import Spinner from '../../components/ui/Spinner';
+import { useAuth } from '../../context/AuthContext';
+import { getTables } from '../../api/tables';
+import { createOrder, updateOrderStatus } from '../../api/orders';
+import { getProducts } from '../../api/products';
 
 const TABLE_STATUS_CONFIG = {
   available: { label: 'Disponible', color: 'bg-emerald-100 border-emerald-300 text-emerald-800' },
@@ -58,6 +39,7 @@ function TableGrid({ tables, onSelectTable }) {
               .filter((t) => t.zone === zone)
               .map((table) => {
                 const statusCfg = TABLE_STATUS_CONFIG[table.status];
+                const activeOrder = table.active_order;
                 return (
                   <button
                     key={table.id}
@@ -71,16 +53,15 @@ function TableGrid({ tables, onSelectTable }) {
                     </div>
                     <p className="text-xs font-medium mt-2">{statusCfg.label}</p>
 
-                    {/* Order status badge */}
-                    {table.order && (
+                    {activeOrder && (
                       <div className="absolute top-2 right-2">
-                        {table.order.status === 'ready' && (
+                        {activeOrder.status === 'ready' && (
                           <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" />
                         )}
-                        {table.order.status === 'pending' && (
+                        {activeOrder.status === 'pending' && (
                           <div className="w-3 h-3 bg-amber-400 rounded-full" />
                         )}
-                        {table.order.status === 'preparing' && (
+                        {activeOrder.status === 'preparing' && (
                           <div className="w-3 h-3 bg-blue-400 rounded-full" />
                         )}
                       </div>
@@ -95,41 +76,49 @@ function TableGrid({ tables, onSelectTable }) {
   );
 }
 
-function NewOrderModal({ table, open, onClose, onSubmit }) {
+function NewOrderModal({ table, open, onClose, onSubmit, menu, saving }) {
   const [orderItems, setOrderItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [notes, setNotes] = useState('');
 
-  const categories = ['Todos', ...new Set(MOCK_MENU.map((p) => p.category))];
+  const categories = ['Todos', ...new Set(menu.map((p) => p.categoria?.nombre || 'Sin categoría'))];
   const filteredMenu = selectedCategory === 'Todos'
-    ? MOCK_MENU
-    : MOCK_MENU.filter((p) => p.category === selectedCategory);
+    ? menu
+    : menu.filter((p) => (p.categoria?.nombre || 'Sin categoría') === selectedCategory);
 
   const addItem = (product) => {
     setOrderItems((prev) => {
-      const existing = prev.find((i) => i.id === product.id);
+      const existing = prev.find((i) => i.product_id === product.id);
       if (existing) {
-        return prev.map((i) => i.id === product.id ? { ...i, qty: i.qty + 1 } : i);
+        return prev.map((i) => i.product_id === product.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
-      return [...prev, { ...product, qty: 1, note: '' }];
+      return [...prev, { product_id: product.id, nombre: product.nombre, price: Number(product.precio), quantity: 1, notes: '' }];
     });
   };
 
-  const removeItem = (id) => {
+  const removeItem = (productId) => {
     setOrderItems((prev) => {
-      const existing = prev.find((i) => i.id === id);
-      if (existing?.qty > 1) {
-        return prev.map((i) => i.id === id ? { ...i, qty: i.qty - 1 } : i);
+      const existing = prev.find((i) => i.product_id === productId);
+      if (existing?.quantity > 1) {
+        return prev.map((i) => i.product_id === productId ? { ...i, quantity: i.quantity - 1 } : i);
       }
-      return prev.filter((i) => i.id !== id);
+      return prev.filter((i) => i.product_id !== productId);
     });
   };
 
-  const total = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const total = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   const handleSubmit = () => {
     if (orderItems.length === 0) return;
-    onSubmit({ tableId: table.id, items: orderItems, notes });
+    onSubmit({
+      table_id: table.id,
+      items: orderItems.map((i) => ({
+        product_id: i.product_id,
+        quantity: i.quantity,
+        notes: i.notes || undefined,
+      })),
+      notes: notes || undefined,
+    });
     setOrderItems([]);
     setNotes('');
   };
@@ -161,7 +150,7 @@ function NewOrderModal({ table, open, onClose, onSubmit }) {
           {/* Menu items */}
           <div className="overflow-y-auto flex-1 flex flex-col gap-1.5 pr-1">
             {filteredMenu.map((product) => {
-              const inOrder = orderItems.find((i) => i.id === product.id);
+              const inOrder = orderItems.find((i) => i.product_id === product.id);
               return (
                 <div
                   key={product.id}
@@ -170,8 +159,8 @@ function NewOrderModal({ table, open, onClose, onSubmit }) {
                   }`}
                 >
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{product.name}</p>
-                    <p className="text-xs text-gray-500">${product.price.toFixed(2)}</p>
+                    <p className="text-sm font-medium text-gray-900">{product.nombre}</p>
+                    <p className="text-xs text-gray-500">${Number(product.precio).toFixed(2)}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {inOrder && (
@@ -182,7 +171,7 @@ function NewOrderModal({ table, open, onClose, onSubmit }) {
                         >
                           −
                         </button>
-                        <span className="text-sm font-bold text-brand-700 w-4 text-center">{inOrder.qty}</span>
+                        <span className="text-sm font-bold text-brand-700 w-4 text-center">{inOrder.quantity}</span>
                       </>
                     )}
                     <button
@@ -206,9 +195,9 @@ function NewOrderModal({ table, open, onClose, onSubmit }) {
               <p className="text-xs text-gray-400 text-center mt-4">Sin productos</p>
             )}
             {orderItems.map((item) => (
-              <div key={item.id} className="flex items-start justify-between text-xs gap-2">
-                <span className="text-gray-700 flex-1 min-w-0 truncate">{item.qty}x {item.name}</span>
-                <span className="text-gray-500 shrink-0">${(item.qty * item.price).toFixed(2)}</span>
+              <div key={item.product_id} className="flex items-start justify-between text-xs gap-2">
+                <span className="text-gray-700 flex-1 min-w-0 truncate">{item.quantity}x {item.nombre}</span>
+                <span className="text-gray-500 shrink-0">${(item.quantity * item.price).toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -230,7 +219,8 @@ function NewOrderModal({ table, open, onClose, onSubmit }) {
 
           <Button
             onClick={handleSubmit}
-            disabled={orderItems.length === 0}
+            disabled={orderItems.length === 0 || saving}
+            loading={saving}
             className="w-full"
           >
             <ShoppingCart className="w-4 h-4" />
@@ -245,8 +235,9 @@ function NewOrderModal({ table, open, onClose, onSubmit }) {
 function TableDetailModal({ table, open, onClose, onNewOrder, onMarkDelivered }) {
   if (!table) return null;
 
-  const hasActiveOrder = table.order && table.order.status !== 'delivered';
-  const orderStatus = table.order ? ORDER_STATUS_CONFIG[table.order.status] : null;
+  const activeOrder = table.active_order;
+  const hasActiveOrder = activeOrder && activeOrder.status !== 'delivered';
+  const orderStatus = activeOrder ? ORDER_STATUS_CONFIG[activeOrder.status] : null;
 
   return (
     <Modal open={open} onClose={onClose} title={`Mesa ${table.number} – ${table.zone}`} size="sm">
@@ -263,14 +254,14 @@ function TableDetailModal({ table, open, onClose, onNewOrder, onMarkDelivered })
         </div>
 
         {/* Active order */}
-        {table.order && (
+        {activeOrder && (
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 bg-gray-50">
-              <p className="text-sm font-medium text-gray-700">{table.order.id}</p>
-              <Badge variant={orderStatus.variant}>{orderStatus.label}</Badge>
+              <p className="text-sm font-medium text-gray-700">Pedido #{activeOrder.id}</p>
+              {orderStatus && <Badge variant={orderStatus.variant}>{orderStatus.label}</Badge>}
             </div>
             <div className="px-4 py-3 text-sm text-gray-600">
-              <p>{table.order.items} productos · ${table.order.total.toFixed(2)}</p>
+              <p>{activeOrder.items || 0} productos · ${Number(activeOrder.total).toFixed(2)}</p>
             </div>
           </div>
         )}
@@ -283,22 +274,15 @@ function TableDetailModal({ table, open, onClose, onNewOrder, onMarkDelivered })
               Nuevo pedido
             </Button>
           )}
-          {table.order?.status === 'ready' && (
-            <Button variant="success" onClick={() => onMarkDelivered(table.id)} className="w-full">
+          {activeOrder?.status === 'ready' && (
+            <Button variant="success" onClick={() => onMarkDelivered(activeOrder.id)} className="w-full">
               <CheckCircle2 className="w-4 h-4" />
               Marcar como entregado
             </Button>
           )}
-          {hasActiveOrder && (
-            <Button variant="secondary" onClick={onClose} className="w-full">
-              Cerrar
-            </Button>
-          )}
-          {!hasActiveOrder && (
-            <Button variant="secondary" onClick={onClose} className="w-full">
-              Cerrar
-            </Button>
-          )}
+          <Button variant="secondary" onClick={onClose} className="w-full">
+            Cerrar
+          </Button>
         </div>
       </div>
     </Modal>
@@ -306,12 +290,55 @@ function TableDetailModal({ table, open, onClose, onNewOrder, onMarkDelivered })
 }
 
 export default function WaiterPage() {
-  const [tables, setTables] = useState(MOCK_TABLES);
+  const { user } = useAuth();
+  const companyId = user?.company_id;
+  const branchId = user?.branch_id;
+
+  const [tables, setTables] = useState([]);
+  const [menu, setMenu] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const [selectedTable, setSelectedTable] = useState(null);
   const [showTableDetail, setShowTableDetail] = useState(false);
   const [showNewOrder, setShowNewOrder] = useState(false);
 
-  const readyCount = tables.filter((t) => t.order?.status === 'ready').length;
+  const fetchData = useCallback(async () => {
+    if (!companyId || !branchId) return;
+    try {
+      setLoading(true);
+      const [tablesRes, productsRes] = await Promise.all([
+        getTables(companyId, branchId),
+        getProducts(companyId, { per_page: 200, status: 'active' }),
+      ]);
+      setTables(tablesRes.data.data || []);
+      setMenu(productsRes.data.data || []);
+    } catch {
+      setError('No se pudieron cargar los datos');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, branchId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Auto-refresh tables every 15 seconds
+  useEffect(() => {
+    if (!companyId || !branchId) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await getTables(companyId, branchId);
+        setTables(res.data.data || []);
+      } catch {
+        // silent refresh failure
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [companyId, branchId]);
+
+  const readyCount = tables.filter((t) => t.active_order?.status === 'ready').length;
 
   const handleSelectTable = (table) => {
     setSelectedTable(table);
@@ -324,37 +351,37 @@ export default function WaiterPage() {
     setShowNewOrder(true);
   };
 
-  const handleSubmitOrder = ({ tableId, items, notes }) => {
-    setTables((prev) =>
-      prev.map((t) =>
-        t.id === tableId
-          ? {
-              ...t,
-              status: 'occupied',
-              order: {
-                id: `ORD-${String(Date.now()).slice(-4)}`,
-                status: 'pending',
-                items: items.length,
-                total: items.reduce((s, i) => s + i.price * i.qty, 0),
-              },
-            }
-          : t
-      )
-    );
-    setShowNewOrder(false);
-    setSelectedTable(null);
+  const handleSubmitOrder = async (orderData) => {
+    try {
+      setSaving(true);
+      await createOrder(companyId, branchId, orderData);
+      setShowNewOrder(false);
+      setSelectedTable(null);
+      await fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error al crear el pedido');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleMarkDelivered = (tableId) => {
-    setTables((prev) =>
-      prev.map((t) =>
-        t.id === tableId
-          ? { ...t, status: 'available', order: null }
-          : t
-      )
-    );
-    setShowTableDetail(false);
+  const handleMarkDelivered = async (orderId) => {
+    try {
+      await updateOrderStatus(companyId, branchId, orderId, 'delivered');
+      setShowTableDetail(false);
+      await fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error al marcar como entregado');
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Spinner className="w-8 h-8" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -364,13 +391,26 @@ export default function WaiterPage() {
           <h1 className="text-2xl font-bold text-gray-900">Mis mesas</h1>
           <p className="text-gray-500 mt-1">Gestiona los pedidos de tus mesas</p>
         </div>
-        {readyCount > 0 && (
-          <div className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full font-medium text-sm animate-pulse">
-            <ChefHat className="w-4 h-4" />
-            {readyCount} pedido{readyCount > 1 ? 's' : ''} listo{readyCount > 1 ? 's' : ''}!
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {readyCount > 0 && (
+            <div className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full font-medium text-sm animate-pulse">
+              <ChefHat className="w-4 h-4" />
+              {readyCount} pedido{readyCount > 1 ? 's' : ''} listo{readyCount > 1 ? 's' : ''}!
+            </div>
+          )}
+          <button onClick={fetchData} className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100">
+            <RefreshCw className="w-5 h-5" />
+          </button>
+        </div>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-medium">✕</button>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 mb-6">
@@ -390,7 +430,14 @@ export default function WaiterPage() {
       </div>
 
       {/* Table grid */}
-      <TableGrid tables={tables} onSelectTable={handleSelectTable} />
+      {tables.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <p className="font-medium">No hay mesas asignadas</p>
+          <p className="text-sm mt-1">Contacta al administrador para configurar las mesas.</p>
+        </div>
+      ) : (
+        <TableGrid tables={tables} onSelectTable={handleSelectTable} />
+      )}
 
       {/* Modals */}
       <TableDetailModal
@@ -405,6 +452,8 @@ export default function WaiterPage() {
         open={showNewOrder}
         onClose={() => setShowNewOrder(false)}
         onSubmit={handleSubmitOrder}
+        menu={menu}
+        saving={saving}
       />
     </div>
   );

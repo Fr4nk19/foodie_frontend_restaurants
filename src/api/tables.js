@@ -1,10 +1,5 @@
 import api from './axios';
 
-// NOTE: These endpoints are not yet implemented in the backend.
-// When added, they should follow the pattern:
-// /api/v1/companies/{company}/branches/{branch}/tables
-// The functions below use the expected URL structure.
-
 export const getTables = (companyId, branchId, params = {}) =>
   api.get(`/companies/${companyId}/branches/${branchId}/tables`, { params });
 

@@ -1,10 +1,5 @@
 import api from './axios';
 
-// NOTE: These endpoints are not yet implemented in the backend.
-// When added, they should follow the pattern:
-// /api/v1/companies/{company}/branches/{branch}/orders
-// The functions below use the expected URL structure.
-
 export const getOrders = (companyId, branchId, params = {}) =>
   api.get(`/companies/${companyId}/branches/${branchId}/orders`, { params });
 
@@ -17,8 +12,11 @@ export const createOrder = (companyId, branchId, data) =>
 export const updateOrder = (companyId, branchId, orderId, data) =>
   api.put(`/companies/${companyId}/branches/${branchId}/orders/${orderId}`, data);
 
-export const updateOrderStatus = (companyId, branchId, orderId, status) =>
-  api.patch(`/companies/${companyId}/branches/${branchId}/orders/${orderId}/status`, { status });
+export const updateOrderStatus = (companyId, branchId, orderId, status, reason) =>
+  api.patch(`/companies/${companyId}/branches/${branchId}/orders/${orderId}/status`, { status, reason });
 
-export const cancelOrder = (companyId, branchId, orderId, reason) =>
-  api.delete(`/companies/${companyId}/branches/${branchId}/orders/${orderId}`, { data: { reason } });
+export const toggleOrderItem = (companyId, branchId, orderId, itemId) =>
+  api.patch(`/companies/${companyId}/branches/${branchId}/orders/${orderId}/items/${itemId}/toggle`);
+
+export const deleteOrder = (companyId, branchId, orderId) =>
+  api.delete(`/companies/${companyId}/branches/${branchId}/orders/${orderId}`);

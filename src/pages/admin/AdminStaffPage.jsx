@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, ChefHat, Coffee, ShieldCheck } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
-import Input from '../../components/ui/Input';
+import Spinner from '../../components/ui/Spinner';
+import { useAuth } from '../../context/AuthContext';
+import { getUsers } from '../../api/users';
 
 const ROLE_MAP = {
   company_admin: { label: 'Administrador', variant: 'purple', icon: ShieldCheck },
@@ -15,22 +17,45 @@ const JOB_TYPE_MAP = {
   waiter: { label: 'Mesero', variant: 'success', icon: Coffee },
 };
 
-const MOCK_STAFF = [
-  { id: 1, name: 'Ana López', email: 'ana@restaurante.com', role: 'branch_manager', job_type: null, is_active: true },
-  { id: 2, name: 'Carlos Ruiz', email: 'carlos@restaurante.com', role: 'employee', job_type: 'waiter', is_active: true },
-  { id: 3, name: 'María García', email: 'maria@restaurante.com', role: 'employee', job_type: 'kitchen', is_active: true },
-  { id: 4, name: 'Juan Pérez', email: 'juan@restaurante.com', role: 'employee', job_type: 'waiter', is_active: true },
-  { id: 5, name: 'Pedro Torres', email: 'pedro@restaurante.com', role: 'employee', job_type: 'kitchen', is_active: false },
-];
-
 export default function AdminStaffPage() {
+  const { user } = useAuth();
+  const companyId = user?.company_id;
+
+  const [staff, setStaff] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
 
-  const filtered = MOCK_STAFF.filter(
+  const fetchStaff = useCallback(async () => {
+    if (!companyId) return;
+    try {
+      setLoading(true);
+      const res = await getUsers(companyId);
+      setStaff(res.data.data || []);
+    } catch {
+      setError('No se pudo cargar el personal');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    fetchStaff();
+  }, [fetchStaff]);
+
+  const filtered = staff.filter(
     (s) =>
       s.name.toLowerCase().includes(search.toLowerCase()) ||
       s.email.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Spinner className="w-8 h-8" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -45,6 +70,14 @@ export default function AdminStaffPage() {
           Agregar empleado
         </Button>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-medium">✕</button>
+        </div>
+      )}
 
       {/* Search */}
       <div className="mb-5">
@@ -72,19 +105,26 @@ export default function AdminStaffPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {filtered.map((staff) => {
-              const role = ROLE_MAP[staff.role] || { label: staff.role, variant: 'gray' };
-              const jobType = staff.job_type ? JOB_TYPE_MAP[staff.job_type] : null;
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-gray-400">
+                  No se encontró personal
+                </td>
+              </tr>
+            )}
+            {filtered.map((member) => {
+              const role = ROLE_MAP[member.role] || { label: member.role, variant: 'gray' };
+              const jobType = member.job_type ? JOB_TYPE_MAP[member.job_type] : null;
               return (
-                <tr key={staff.id} className="hover:bg-gray-50 transition-colors">
+                <tr key={member.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-semibold text-sm shrink-0">
-                        {staff.name.charAt(0)}
+                        {member.name.charAt(0)}
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900">{staff.name}</p>
-                        <p className="text-xs text-gray-400">{staff.email}</p>
+                        <p className="font-medium text-gray-900">{member.name}</p>
+                        <p className="text-xs text-gray-400">{member.email}</p>
                       </div>
                     </div>
                   </td>
@@ -99,8 +139,8 @@ export default function AdminStaffPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant={staff.is_active ? 'success' : 'error'}>
-                      {staff.is_active ? 'Activo' : 'Inactivo'}
+                    <Badge variant={member.is_active ? 'success' : 'error'}>
+                      {member.is_active ? 'Activo' : 'Inactivo'}
                     </Badge>
                   </td>
                 </tr>
