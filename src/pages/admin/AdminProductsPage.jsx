@@ -206,7 +206,11 @@ export default function AdminProductsPage() {
   const [meta, setMeta] = useState(null);
 
   const fetchData = useCallback(async () => {
-    if (!companyId) return;
+  if (!companyId) {
+      setLoading(false);
+      setError('No se encontró la empresa del usuario.');
+      return;
+    }
     try {
       setLoading(true);
       const [prodRes, catRes, unidRes] = await Promise.all([
@@ -218,7 +222,8 @@ export default function AdminProductsPage() {
       setMeta(prodRes.data.meta || null);
       setCategories(catRes.data.data || []);
       setUnidades(unidRes.data.data || []);
-    } catch {
+    } catch (err) {
+      console.error('fetchData error:', err.response || err); 
       setError('No se pudieron cargar los productos');
     } finally {
       setLoading(false);
