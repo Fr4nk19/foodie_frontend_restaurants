@@ -9,6 +9,7 @@ import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Spinner from '../../components/ui/Spinner';
 import { useAuth } from '../../context/AuthContext';
+import { getBranches } from '../../api/branches';
 import { getZones, createZone, updateZone, deleteZone } from '../../api/zones';
 import { getTables, createTable, updateTable, deleteTable } from '../../api/tables';
 
@@ -18,6 +19,42 @@ const TABLE_STATUS = {
   reserved:  { label: 'Reservada',  variant: 'info' },
   cleaning:  { label: 'En limpieza', variant: 'gray' },
 };
+
+// ─── Branch Selector ──────────────────────────────────────────────────────────
+
+function BranchSelector({ companyId, onSelect }) {
+  const [branches, setBranches] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+
+  useEffect(() => {
+    getBranches(companyId)
+      .then((res) => setBranches(res.data.data || []))
+      .catch(() => setError('No se pudieron cargar las sucursales'))
+      .finally(() => setLoading(false));
+  }, [companyId]);
+
+  if (loading) return <div className="flex justify-center py-16"><Spinner className="w-8 h-8" /></div>;
+  if (error)   return <p className="text-red-600 text-sm text-center py-8">{error}</p>;
+
+  return (
+    <div className="max-w-md mx-auto py-16">
+      <h2 className="text-lg font-semibold text-gray-800 mb-4">Selecciona una sucursal</h2>
+      <div className="flex flex-col gap-2">
+        {branches.map((b) => (
+          <button
+            key={b.id}
+            onClick={() => onSelect(b)}
+            className="text-left px-4 py-3 rounded-xl border border-gray-200 hover:border-brand-400 hover:bg-brand-50 transition-colors"
+          >
+            <p className="font-medium text-gray-900">{b.name}</p>
+            {b.address && <p className="text-xs text-gray-500 mt-0.5">{b.address}</p>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ─── Zone Form Modal ──────────────────────────────────────────────────────────
 
@@ -136,7 +173,6 @@ function TableCard({ table, onEdit, onDelete, onStatusChange, saving }) {
         <span>{table.capacity} personas</span>
       </div>
 
-      {/* Quick status change */}
       <div className="flex flex-wrap gap-1 pt-2 border-t border-gray-100">
         {Object.entries(TABLE_STATUS).map(([key, { label }]) => (
           <button
@@ -170,7 +206,7 @@ function TableCard({ table, onEdit, onDelete, onStatusChange, saving }) {
 // ─── Zone Panel ───────────────────────────────────────────────────────────────
 
 function ZonePanel({
-  zone, branchId,
+  zone,
   onEditZone, onDeleteZone,
   onAddTable, onEditTable, onDeleteTable, onStatusChange,
   saving,
@@ -179,7 +215,6 @@ function ZonePanel({
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden mb-4">
-      {/* Zone header */}
       <div className="flex items-center gap-3 px-5 py-3 bg-gray-50 border-b border-gray-200">
         <button
           onClick={() => setOpen((o) => !o)}
@@ -207,7 +242,6 @@ function ZonePanel({
         </Button>
       </div>
 
-      {/* Tables grid */}
       {open && (
         <div className="p-4">
           {(zone.tables ?? []).length === 0 ? (
@@ -245,33 +279,35 @@ function ZonePanel({
 export default function AdminTablesPage() {
   const { user } = useAuth();
   const companyId = user?.company_id;
-  const branchId  = user?.branch_id;
 
-  const [zones, setZones] = useState([]);
+  // branchId: comes from user profile (branch_manager / employee) or chosen by admin
+  const [activeBranchId, setActiveBranchId] = useState(user?.branch_id ?? null);
+  const [activeBranchName, setActiveBranchName] = useState(null);
+
+  const [zones, setZones]     = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState(null);
 
-  // Zone modal state
-  const [zoneModal, setZoneModal] = useState({ open: false, data: null });
+  const [zoneModal,         setZoneModal]         = useState({ open: false, data: null });
   const [deleteZoneConfirm, setDeleteZoneConfirm] = useState(null);
+  const [tableModal,        setTableModal]        = useState({ open: false, zone: null, data: null });
+  const [deleteTableConfirm,setDeleteTableConfirm]= useState(null);
 
-  // Table modal state
-  const [tableModal, setTableModal] = useState({ open: false, zone: null, data: null });
-  const [deleteTableConfirm, setDeleteTableConfirm] = useState(null);
-
-  // Load all zones with their tables
   const fetchZones = useCallback(async () => {
-    if (!companyId || !branchId) return;
+    if (!companyId || !activeBranchId) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const res = await getZones(companyId, branchId);
+      setError(null);
+      const res = await getZones(companyId, activeBranchId);
       const zonesData = res.data.data || [];
-      // Load tables for each zone in parallel
       const withTables = await Promise.all(
         zonesData.map(async (zone) => {
           try {
-            const tRes = await getTables(companyId, branchId, { table_zone_id: zone.id });
+            const tRes = await getTables(companyId, activeBranchId, { table_zone_id: zone.id });
             return { ...zone, tables: tRes.data.data || [] };
           } catch {
             return { ...zone, tables: [] };
@@ -279,31 +315,30 @@ export default function AdminTablesPage() {
         })
       );
       setZones(withTables);
-    } catch {
-      setError('No se pudieron cargar las zonas');
+    } catch (err) {
+      setError(err.response?.data?.message || 'No se pudieron cargar las zonas');
     } finally {
       setLoading(false);
     }
-  }, [companyId, branchId]);
+  }, [companyId, activeBranchId]);
 
   useEffect(() => { fetchZones(); }, [fetchZones]);
 
-  // Summary counts across all tables
-  const allTables = zones.flatMap((z) => z.tables ?? []);
+  const allTables    = zones.flatMap((z) => z.tables ?? []);
   const statusCounts = Object.keys(TABLE_STATUS).reduce((acc, key) => {
     acc[key] = allTables.filter((t) => t.status === key).length;
     return acc;
   }, {});
 
-  // ── Zone handlers ───────────────────────────────────────────────────────
+  // ── Zone handlers ─────────────────────────────────────────────────────────
 
   const handleSaveZone = async (data) => {
     try {
       setSaving(true);
       if (zoneModal.data) {
-        await updateZone(companyId, branchId, zoneModal.data.id, data);
+        await updateZone(companyId, activeBranchId, zoneModal.data.id, data);
       } else {
-        await createZone(companyId, branchId, data);
+        await createZone(companyId, activeBranchId, data);
       }
       setZoneModal({ open: false, data: null });
       await fetchZones();
@@ -316,7 +351,7 @@ export default function AdminTablesPage() {
 
   const handleDeleteZone = async (zone) => {
     try {
-      await deleteZone(companyId, branchId, zone.id);
+      await deleteZone(companyId, activeBranchId, zone.id);
       setDeleteZoneConfirm(null);
       await fetchZones();
     } catch (err) {
@@ -324,16 +359,16 @@ export default function AdminTablesPage() {
     }
   };
 
-  // ── Table handlers ──────────────────────────────────────────────────────
+  // ── Table handlers ────────────────────────────────────────────────────────
 
   const handleSaveTable = async (data) => {
     const { zone, data: tableData } = tableModal;
     try {
       setSaving(true);
       if (tableData) {
-        await updateTable(companyId, branchId, tableData.id, data);
+        await updateTable(companyId, activeBranchId, tableData.id, data);
       } else {
-        await createTable(companyId, branchId, { ...data, table_zone_id: zone.id });
+        await createTable(companyId, activeBranchId, { ...data, table_zone_id: zone.id });
       }
       setTableModal({ open: false, zone: null, data: null });
       await fetchZones();
@@ -344,9 +379,9 @@ export default function AdminTablesPage() {
     }
   };
 
-  const handleDeleteTable = async ({ zone, table }) => {
+  const handleDeleteTable = async ({ zone: _z, table }) => {
     try {
-      await deleteTable(companyId, branchId, table.id);
+      await deleteTable(companyId, activeBranchId, table.id);
       setDeleteTableConfirm(null);
       await fetchZones();
     } catch (err) {
@@ -357,7 +392,7 @@ export default function AdminTablesPage() {
   const handleStatusChange = async (tableId, newStatus) => {
     try {
       setSaving(true);
-      await updateTable(companyId, branchId, tableId, { status: newStatus });
+      await updateTable(companyId, activeBranchId, tableId, { status: newStatus });
       await fetchZones();
     } catch (err) {
       setError(err.response?.data?.message || 'Error al cambiar el estado');
@@ -365,6 +400,32 @@ export default function AdminTablesPage() {
       setSaving(false);
     }
   };
+
+  // ── Branch selector for admins without an assigned branch ─────────────────
+
+  if (!companyId) {
+    return (
+      <div className="p-6 text-center text-gray-500">
+        <p>No se encontró la empresa asociada a tu cuenta.</p>
+      </div>
+    );
+  }
+
+  if (!activeBranchId) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Mesas</h1>
+        <p className="text-gray-500 mb-2">Selecciona la sucursal para gestionar sus zonas y mesas.</p>
+        <BranchSelector
+          companyId={companyId}
+          onSelect={(branch) => {
+            setActiveBranchId(branch.id);
+            setActiveBranchName(branch.name);
+          }}
+        />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -379,13 +440,29 @@ export default function AdminTablesPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mesas</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900">Mesas</h1>
+            {activeBranchName && (
+              <span className="text-sm text-gray-500 font-normal">— {activeBranchName}</span>
+            )}
+          </div>
           <p className="text-gray-500 mt-1">Gestión de zonas y mesas del restaurante</p>
         </div>
-        <Button onClick={() => setZoneModal({ open: true, data: null })}>
-          <FolderPlus className="w-4 h-4" />
-          Nueva zona
-        </Button>
+        <div className="flex items-center gap-2">
+          {!user?.branch_id && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { setActiveBranchId(null); setActiveBranchName(null); setZones([]); }}
+            >
+              Cambiar sucursal
+            </Button>
+          )}
+          <Button onClick={() => setZoneModal({ open: true, data: null })}>
+            <FolderPlus className="w-4 h-4" />
+            Nueva zona
+          </Button>
+        </div>
       </div>
 
       {/* Error */}
@@ -422,7 +499,6 @@ export default function AdminTablesPage() {
           <ZonePanel
             key={zone.id}
             zone={zone}
-            branchId={branchId}
             onEditZone={(z) => setZoneModal({ open: true, data: z })}
             onDeleteZone={(z) => setDeleteZoneConfirm(z)}
             onAddTable={(z) => setTableModal({ open: true, zone: z, data: null })}

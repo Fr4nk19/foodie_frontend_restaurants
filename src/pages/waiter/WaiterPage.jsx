@@ -328,7 +328,10 @@ export default function WaiterPage() {
   }, [companyId, branchId]);
 
   const fetchData = useCallback(async () => {
-    if (!companyId || !branchId) return;
+    if (!companyId || !branchId) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const [withTables, productsRes] = await Promise.all([
