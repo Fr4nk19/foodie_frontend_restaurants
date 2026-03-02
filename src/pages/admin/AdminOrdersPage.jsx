@@ -8,29 +8,26 @@ import { useAuth } from '../../context/AuthContext';
 import { getOrders, updateOrderStatus } from '../../api/orders';
 
 const STATUS_TABS = [
-  { key: 'all',         label: 'Todos' },
-  { key: 'pending',     label: 'Pendientes' },
-  { key: 'confirmed',   label: 'Confirmados' },
-  { key: 'in_progress', label: 'En cocina' },
-  { key: 'ready',       label: 'Listos' },
-  { key: 'served',      label: 'Servidos' },
-  { key: 'cancelled',   label: 'Cancelados' },
+  { key: 'all',       label: 'Todos' },
+  { key: 'pending',   label: 'Pendientes' },
+  { key: 'preparing', label: 'En cocina' },
+  { key: 'ready',     label: 'Listos' },
+  { key: 'delivered', label: 'Entregados' },
+  { key: 'cancelled', label: 'Cancelados' },
 ];
 
 const STATUS_MAP = {
-  pending:     { label: 'Pendiente',  variant: 'warning' },
-  confirmed:   { label: 'Confirmado', variant: 'info' },
-  in_progress: { label: 'En cocina',  variant: 'info' },
-  ready:       { label: 'Listo',      variant: 'success' },
-  served:      { label: 'Servido',    variant: 'gray' },
-  cancelled:   { label: 'Cancelado',  variant: 'error' },
+  pending:   { label: 'Pendiente',  variant: 'warning' },
+  preparing: { label: 'En cocina',  variant: 'info' },
+  ready:     { label: 'Listo',      variant: 'success' },
+  delivered: { label: 'Entregado',  variant: 'gray' },
+  cancelled: { label: 'Cancelado',  variant: 'error' },
 };
 
 const NEXT_STATUS = {
-  pending:     'confirmed',
-  confirmed:   'in_progress',
-  in_progress: 'ready',
-  ready:       'served',
+  pending:   'preparing',
+  preparing: 'ready',
+  ready:     'delivered',
 };
 
 function OrderDetailModal({ order, onClose, onStatusChange }) {
@@ -40,7 +37,7 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
   const nextLabel  = nextStatus ? STATUS_MAP[nextStatus]?.label : null;
 
   const tableName = order.table
-    ? `Mesa ${order.table.number}${order.table.zone ? ` · ${order.table.zone.name}` : ''}`
+    ? `Mesa ${order.table.number}${order.table.table_zone ? ` · ${order.table.table_zone.name}` : ''}`
     : order.type === 'takeout' ? 'Para llevar' : 'Delivery';
 
   const waiterName = order.waiter?.name || '—';
@@ -97,7 +94,7 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
               Marcar como: {nextLabel}
             </Button>
           )}
-          {!['served', 'cancelled'].includes(order.status) && (
+          {!['delivered', 'cancelled'].includes(order.status) && (
             <Button variant="danger" onClick={() => onStatusChange(order.id, 'cancelled')} className="w-full">
               Cancelar orden
             </Button>
@@ -110,7 +107,8 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
 
 export default function AdminOrdersPage() {
   const { user } = useAuth();
-  const branchId = user?.branch_id;
+  const companyId = user?.company_id;
+  const branchId  = user?.branch_id;
 
   const [activeTab, setActiveTab] = useState('all');
   const [orders, setOrders] = useState([]);
@@ -119,17 +117,17 @@ export default function AdminOrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState(null);
 
   const fetchOrders = useCallback(async () => {
-    if (!branchId) return;
+    if (!companyId || !branchId) return;
     try {
       setLoading(true);
-      const res = await getOrders(branchId, { per_page: 100 });
+      const res = await getOrders(companyId, branchId, { per_page: 100 });
       setOrders(res.data.data || []);
     } catch {
       setError('No se pudieron cargar los pedidos');
     } finally {
       setLoading(false);
     }
-  }, [branchId]);
+  }, [companyId, branchId]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
@@ -137,7 +135,7 @@ export default function AdminOrdersPage() {
 
   const handleStatusChange = async (orderId, newStatus) => {
     try {
-      await updateOrderStatus(branchId, orderId, newStatus);
+      await updateOrderStatus(companyId, branchId, orderId, newStatus);
       setSelectedOrder(null);
       await fetchOrders();
     } catch (err) {
@@ -210,7 +208,7 @@ export default function AdminOrdersPage() {
         {filtered.map((order) => {
           const status    = STATUS_MAP[order.status] ?? { label: order.status, variant: 'gray' };
           const tableName = order.table
-            ? `Mesa ${order.table.number}${order.table.zone ? ` · ${order.table.zone.name}` : ''}`
+            ? `Mesa ${order.table.number}${order.table.table_zone ? ` · ${order.table.table_zone.name}` : ''}`
             : order.type === 'takeout' ? 'Para llevar' : 'Delivery';
           const waiterName = order.waiter?.name || '—';
           const orderTime  = order.created_at

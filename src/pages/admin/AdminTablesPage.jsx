@@ -16,7 +16,7 @@ const TABLE_STATUS = {
   available: { label: 'Disponible', variant: 'success' },
   occupied:  { label: 'Ocupada',    variant: 'warning' },
   reserved:  { label: 'Reservada',  variant: 'info' },
-  inactive:  { label: 'Inactiva',   variant: 'gray' },
+  cleaning:  { label: 'En limpieza', variant: 'gray' },
 };
 
 // ─── Zone Form Modal ──────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ function TableFormModal({ open, onClose, onSave, initialData, saving }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSave({ number: String(form.number), capacity: Number(form.capacity) });
+    onSave({ number: Number(form.number), capacity: Number(form.capacity) });
   };
 
   return (
@@ -95,9 +95,11 @@ function TableFormModal({ open, onClose, onSave, initialData, saving }) {
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <Input
           label="Número / identificador"
+          type="number"
+          min="1"
           value={form.number}
           onChange={(e) => setForm((p) => ({ ...p, number: e.target.value }))}
-          placeholder="Ej: 01, A-5, VIP-3"
+          placeholder="Ej: 1, 5, 12"
           required
         />
         <Input
@@ -120,7 +122,7 @@ function TableFormModal({ open, onClose, onSave, initialData, saving }) {
 
 // ─── Table Card ───────────────────────────────────────────────────────────────
 
-function TableCard({ table, branchId, zoneId, onEdit, onDelete, onStatusChange, saving }) {
+function TableCard({ table, onEdit, onDelete, onStatusChange, saving }) {
   const status = TABLE_STATUS[table.status] ?? TABLE_STATUS.available;
   return (
     <div className="card flex flex-col gap-3 hover:shadow-md transition-shadow">
@@ -139,7 +141,7 @@ function TableCard({ table, branchId, zoneId, onEdit, onDelete, onStatusChange, 
         {Object.entries(TABLE_STATUS).map(([key, { label }]) => (
           <button
             key={key}
-            onClick={() => onStatusChange(branchId, zoneId, table.id, key)}
+            onClick={() => onStatusChange(table.id, key)}
             disabled={saving || table.status === key}
             className={`text-xs px-2 py-1 rounded-lg transition-colors ${
               table.status === key
@@ -224,8 +226,6 @@ function ZonePanel({
                 <TableCard
                   key={table.id}
                   table={table}
-                  branchId={branchId}
-                  zoneId={zone.id}
                   onEdit={(t) => onEditTable(zone, t)}
                   onDelete={(t) => onDeleteTable(zone, t)}
                   onStatusChange={onStatusChange}
@@ -244,7 +244,8 @@ function ZonePanel({
 
 export default function AdminTablesPage() {
   const { user } = useAuth();
-  const branchId = user?.branch_id;
+  const companyId = user?.company_id;
+  const branchId  = user?.branch_id;
 
   const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -261,16 +262,16 @@ export default function AdminTablesPage() {
 
   // Load all zones with their tables
   const fetchZones = useCallback(async () => {
-    if (!branchId) return;
+    if (!companyId || !branchId) return;
     try {
       setLoading(true);
-      const res = await getZones(branchId);
+      const res = await getZones(companyId, branchId);
       const zonesData = res.data.data || [];
       // Load tables for each zone in parallel
       const withTables = await Promise.all(
         zonesData.map(async (zone) => {
           try {
-            const tRes = await getTables(branchId, zone.id);
+            const tRes = await getTables(companyId, branchId, { table_zone_id: zone.id });
             return { ...zone, tables: tRes.data.data || [] };
           } catch {
             return { ...zone, tables: [] };
@@ -283,7 +284,7 @@ export default function AdminTablesPage() {
     } finally {
       setLoading(false);
     }
-  }, [branchId]);
+  }, [companyId, branchId]);
 
   useEffect(() => { fetchZones(); }, [fetchZones]);
 
@@ -300,9 +301,9 @@ export default function AdminTablesPage() {
     try {
       setSaving(true);
       if (zoneModal.data) {
-        await updateZone(branchId, zoneModal.data.id, data);
+        await updateZone(companyId, branchId, zoneModal.data.id, data);
       } else {
-        await createZone(branchId, data);
+        await createZone(companyId, branchId, data);
       }
       setZoneModal({ open: false, data: null });
       await fetchZones();
@@ -315,7 +316,7 @@ export default function AdminTablesPage() {
 
   const handleDeleteZone = async (zone) => {
     try {
-      await deleteZone(branchId, zone.id);
+      await deleteZone(companyId, branchId, zone.id);
       setDeleteZoneConfirm(null);
       await fetchZones();
     } catch (err) {
@@ -330,9 +331,9 @@ export default function AdminTablesPage() {
     try {
       setSaving(true);
       if (tableData) {
-        await updateTable(branchId, zone.id, tableData.id, data);
+        await updateTable(companyId, branchId, tableData.id, data);
       } else {
-        await createTable(branchId, zone.id, data);
+        await createTable(companyId, branchId, { ...data, table_zone_id: zone.id });
       }
       setTableModal({ open: false, zone: null, data: null });
       await fetchZones();
@@ -345,7 +346,7 @@ export default function AdminTablesPage() {
 
   const handleDeleteTable = async ({ zone, table }) => {
     try {
-      await deleteTable(branchId, zone.id, table.id);
+      await deleteTable(companyId, branchId, table.id);
       setDeleteTableConfirm(null);
       await fetchZones();
     } catch (err) {
@@ -353,10 +354,10 @@ export default function AdminTablesPage() {
     }
   };
 
-  const handleStatusChange = async (bid, zoneId, tableId, newStatus) => {
+  const handleStatusChange = async (tableId, newStatus) => {
     try {
       setSaving(true);
-      await updateTable(bid, zoneId, tableId, { status: newStatus });
+      await updateTable(companyId, branchId, tableId, { status: newStatus });
       await fetchZones();
     } catch (err) {
       setError(err.response?.data?.message || 'Error al cambiar el estado');

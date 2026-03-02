@@ -1,19 +1,22 @@
 import api from './axios';
 
-// ── Orders live under /branches/{branch}/orders ───────────────────────────
+// Orders live under /companies/{company}/branches/{branch}/orders
 
-export const getOrders = (branchId, params = {}) =>
-  api.get(`/branches/${branchId}/orders`, { params });
+const base = (companyId, branchId) =>
+  `/companies/${companyId}/branches/${branchId}/orders`;
 
-export const getOrder = (branchId, orderId) =>
-  api.get(`/branches/${branchId}/orders/${orderId}`);
+export const getOrders = (companyId, branchId, params = {}) =>
+  api.get(base(companyId, branchId), { params });
 
-export const createOrder = (branchId, data) =>
-  api.post(`/branches/${branchId}/orders`, data);
+export const getOrder = (companyId, branchId, orderId) =>
+  api.get(`${base(companyId, branchId)}/${orderId}`);
 
-// status: confirmed | in_progress | ready | served | cancelled
-export const updateOrderStatus = (branchId, orderId, status) =>
-  api.patch(`/branches/${branchId}/orders/${orderId}/status`, { status });
+export const createOrder = (companyId, branchId, data) =>
+  api.post(base(companyId, branchId), data);
 
-export const deleteOrder = (branchId, orderId) =>
-  api.delete(`/branches/${branchId}/orders/${orderId}`);
+// status: pending | preparing | ready | delivered | cancelled
+export const updateOrderStatus = (companyId, branchId, orderId, status) =>
+  api.patch(`${base(companyId, branchId)}/${orderId}/status`, { status });
+
+export const deleteOrder = (companyId, branchId, orderId) =>
+  api.delete(`${base(companyId, branchId)}/${orderId}`);

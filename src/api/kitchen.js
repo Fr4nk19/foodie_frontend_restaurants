@@ -1,19 +1,22 @@
 import api from './axios';
 
-// ── Kitchen module endpoints ──────────────────────────────────────────────
+// Kitchen module endpoints
 
-// Active orders (pending, confirmed, in_progress, ready) sorted by priority
-export const getKitchenOrders = (branchId) =>
-  api.get(`/branches/${branchId}/kitchen/orders`);
+const base = (companyId, branchId) =>
+  `/companies/${companyId}/branches/${branchId}/kitchen`;
 
-// Kitchen advances order: confirmed | in_progress | ready
-export const updateKitchenOrderStatus = (branchId, orderId, status) =>
-  api.patch(`/branches/${branchId}/kitchen/orders/${orderId}/status`, { status });
+// Active orders (pending, preparing, ready) sorted by priority
+export const getKitchenOrders = (companyId, branchId) =>
+  api.get(`${base(companyId, branchId)}/orders`);
 
-// Update a single item status: pending | in_progress | ready | cancelled
-export const updateKitchenItemStatus = (branchId, itemId, status) =>
-  api.patch(`/branches/${branchId}/kitchen/items/${itemId}/status`, { status });
+// Advance order status: preparing | ready
+export const updateKitchenOrderStatus = (companyId, branchId, orderId, status) =>
+  api.patch(`${base(companyId, branchId)}/orders/${orderId}/status`, { status });
+
+// Toggle item is_done (auto-advances order to ready when all items done)
+export const toggleKitchenItem = (companyId, branchId, orderId, itemId) =>
+  api.patch(`${base(companyId, branchId)}/orders/${orderId}/items/${itemId}/toggle`);
 
 // Stats for the kitchen dashboard header
-export const getKitchenStats = (branchId) =>
-  api.get(`/branches/${branchId}/kitchen/stats`);
+export const getKitchenStats = (companyId, branchId) =>
+  api.get(`${base(companyId, branchId)}/stats`);
