@@ -6,34 +6,24 @@ import { useAuth } from '../../context/AuthContext';
 import {
   getKitchenOrders,
   updateKitchenOrderStatus,
-  updateKitchenItemStatus,
+  toggleKitchenItem,
 } from '../../api/kitchen';
 
-// Kitchen columns: pending → confirmed → in_progress → ready
+// Kitchen columns: pending → preparing → ready
 const STATUS_COLUMNS = [
-  { key: 'pending',     label: 'Nuevos pedidos',    icon: Bell,         color: 'text-amber-500',   bg: 'bg-amber-50'   },
-  { key: 'confirmed',   label: 'Confirmados',        icon: ChefHat,      color: 'text-blue-400',    bg: 'bg-blue-50'    },
-  { key: 'in_progress', label: 'En preparación',     icon: ChefHat,      color: 'text-blue-500',    bg: 'bg-blue-50'    },
-  { key: 'ready',       label: 'Listos para servir', icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50' },
+  { key: 'pending',   label: 'Nuevos pedidos',    icon: Bell,         color: 'text-amber-500',   bg: 'bg-amber-50'   },
+  { key: 'preparing', label: 'En preparación',     icon: ChefHat,      color: 'text-blue-500',    bg: 'bg-blue-50'    },
+  { key: 'ready',     label: 'Listos para servir', icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50' },
 ];
 
 const NEXT_STATUS = {
-  pending:     'confirmed',
-  confirmed:   'in_progress',
-  in_progress: 'ready',
+  pending:   'preparing',
+  preparing: 'ready',
 };
 
 const NEXT_LABEL = {
-  pending:     'Confirmar',
-  confirmed:   'Empezar',
-  in_progress: 'Marcar listo',
-};
-
-const ITEM_STATUS_MAP = {
-  pending:     { label: 'Pendiente',   dot: 'bg-gray-300' },
-  in_progress: { label: 'Preparando', dot: 'bg-blue-400' },
-  ready:       { label: 'Listo',      dot: 'bg-emerald-500' },
-  cancelled:   { label: 'Cancelado',  dot: 'bg-red-400' },
+  pending:   'Empezar preparación',
+  preparing: 'Marcar listo',
 };
 
 function elapsed(date) {
@@ -50,24 +40,23 @@ function elapsedColor(date) {
   return 'text-gray-500';
 }
 
-function KitchenOrderCard({ order, branchId, onAdvance, onToggleItem }) {
-  const items     = order.items || [];
-  const readyCount = items.filter((i) => i.status === 'ready').length;
-  const allReady   = readyCount === items.length && items.length > 0;
+function KitchenOrderCard({ order, onAdvance, onToggleItem }) {
+  const items      = order.items || [];
+  const doneCount  = items.filter((i) => i.is_done).length;
+  const allDone    = doneCount === items.length && items.length > 0;
   const nextStatus = NEXT_STATUS[order.status];
   const nextLabel  = NEXT_LABEL[order.status];
 
   const tableName = order.table
-    ? `Mesa ${order.table.number}${order.table.zone ? ` · ${order.table.zone.name}` : ''}`
+    ? `Mesa ${order.table.number}${order.table.table_zone ? ` · ${order.table.table_zone.name}` : ''}`
     : order.type === 'takeout' ? 'Para llevar' : 'Delivery';
 
   const waiterName = order.waiter?.name || '—';
 
   const borderColor = {
-    pending:     'border-amber-300',
-    confirmed:   'border-blue-300',
-    in_progress: 'border-blue-500',
-    ready:       'border-emerald-400',
+    pending:   'border-amber-300',
+    preparing: 'border-blue-500',
+    ready:     'border-emerald-400',
   }[order.status] ?? 'border-gray-300';
 
   return (
@@ -87,17 +76,16 @@ function KitchenOrderCard({ order, branchId, onAdvance, onToggleItem }) {
       {/* Items */}
       <div className="px-4 pb-3 flex flex-col gap-2">
         {items.map((item) => {
-          const itemStatus = ITEM_STATUS_MAP[item.status] ?? ITEM_STATUS_MAP.pending;
-          const isDone     = item.status === 'ready';
+          const isDone = item.is_done;
           return (
             <button
               key={item.id}
-              onClick={() => onToggleItem(branchId, item.id, isDone ? 'in_progress' : 'ready')}
+              onClick={() => onToggleItem(order.id, item.id)}
               className={`flex items-start gap-3 p-2.5 rounded-lg text-left transition-colors ${
                 isDone ? 'bg-emerald-50 opacity-70' : 'bg-gray-50 hover:bg-gray-100'
               }`}
             >
-              <div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${itemStatus.dot}`} />
+              <div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${isDone ? 'bg-emerald-500' : 'bg-gray-300'}`} />
               <div className="min-w-0 flex-1">
                 <p className={`text-sm font-medium ${isDone ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                   {item.quantity}x {item.product_name}
@@ -115,12 +103,12 @@ function KitchenOrderCard({ order, branchId, onAdvance, onToggleItem }) {
           <div className="mt-1">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
               <span>Progreso</span>
-              <span>{readyCount}/{items.length}</span>
+              <span>{doneCount}/{items.length}</span>
             </div>
             <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
               <div
                 className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                style={{ width: `${items.length > 0 ? (readyCount / items.length) * 100 : 0}%` }}
+                style={{ width: `${items.length > 0 ? (doneCount / items.length) * 100 : 0}%` }}
               />
             </div>
           </div>
@@ -139,13 +127,13 @@ function KitchenOrderCard({ order, branchId, onAdvance, onToggleItem }) {
         <div className="px-4 pb-4">
           <Button
             size="sm"
-            variant={order.status === 'in_progress' ? 'success' : 'warning'}
-            onClick={() => onAdvance(branchId, order.id, nextStatus)}
-            disabled={order.status === 'in_progress' && !allReady}
+            variant={order.status === 'preparing' ? 'success' : 'warning'}
+            onClick={() => onAdvance(order.id, nextStatus)}
+            disabled={order.status === 'preparing' && !allDone}
             className="w-full"
           >
-            {order.status === 'in_progress' && !allReady
-              ? `Faltan ${items.length - readyCount} ítem(s)`
+            {order.status === 'preparing' && !allDone
+              ? `Faltan ${items.length - doneCount} ítem(s)`
               : nextLabel}
           </Button>
         </div>
@@ -165,7 +153,8 @@ function KitchenOrderCard({ order, branchId, onAdvance, onToggleItem }) {
 
 export default function KitchenPage() {
   const { user } = useAuth();
-  const branchId = user?.branch_id;
+  const companyId = user?.company_id;
+  const branchId  = user?.branch_id;
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -180,9 +169,9 @@ export default function KitchenPage() {
   }, []);
 
   const fetchOrders = useCallback(async () => {
-    if (!branchId) return;
+    if (!companyId || !branchId) return;
     try {
-      const res = await getKitchenOrders(branchId);
+      const res = await getKitchenOrders(companyId, branchId);
       setOrders(res.data.data || []);
       setLastUpdated(new Date());
     } catch {
@@ -190,7 +179,7 @@ export default function KitchenPage() {
     } finally {
       setLoading(false);
     }
-  }, [branchId]);
+  }, [companyId, branchId]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
@@ -200,18 +189,18 @@ export default function KitchenPage() {
     return () => clearInterval(interval);
   }, [fetchOrders]);
 
-  const handleAdvance = async (bid, orderId, newStatus) => {
+  const handleAdvance = async (orderId, newStatus) => {
     try {
-      await updateKitchenOrderStatus(bid, orderId, newStatus);
+      await updateKitchenOrderStatus(companyId, branchId, orderId, newStatus);
       await fetchOrders();
     } catch (err) {
       setError(err.response?.data?.message || 'Error al actualizar el pedido');
     }
   };
 
-  const handleToggleItem = async (bid, itemId, newStatus) => {
+  const handleToggleItem = async (orderId, itemId) => {
     try {
-      await updateKitchenItemStatus(bid, itemId, newStatus);
+      await toggleKitchenItem(companyId, branchId, orderId, itemId);
       await fetchOrders();
     } catch (err) {
       setError(err.response?.data?.message || 'Error al actualizar el ítem');
@@ -271,7 +260,7 @@ export default function KitchenPage() {
 
       {/* Kanban */}
       <div className="p-6 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {STATUS_COLUMNS.map((col) => {
             const colOrders = orders.filter((o) => o.status === col.key);
             const Icon = col.icon;
@@ -294,7 +283,6 @@ export default function KitchenPage() {
                     <KitchenOrderCard
                       key={order.id}
                       order={order}
-                      branchId={branchId}
                       onAdvance={handleAdvance}
                       onToggleItem={handleToggleItem}
                     />

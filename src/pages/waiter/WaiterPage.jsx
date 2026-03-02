@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Plus, Users, Clock, CheckCircle2, ShoppingCart, ChefHat, RefreshCw,
+  Plus, Users, CheckCircle2, ShoppingCart, ChefHat, RefreshCw,
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -16,15 +16,14 @@ const TABLE_STATUS_CONFIG = {
   available: { label: 'Disponible', color: 'bg-emerald-100 border-emerald-300 text-emerald-800' },
   occupied:  { label: 'Ocupada',    color: 'bg-amber-100 border-amber-300 text-amber-800' },
   reserved:  { label: 'Reservada',  color: 'bg-blue-100 border-blue-300 text-blue-800' },
-  inactive:  { label: 'Inactiva',   color: 'bg-gray-100 border-gray-300 text-gray-500' },
+  cleaning:  { label: 'En limpieza', color: 'bg-gray-100 border-gray-300 text-gray-500' },
 };
 
 const ORDER_STATUS_CONFIG = {
-  pending:     { label: 'Enviado',     variant: 'warning' },
-  confirmed:   { label: 'Confirmado',  variant: 'info' },
-  in_progress: { label: 'Preparando', variant: 'info' },
-  ready:       { label: 'Listo!',      variant: 'success' },
-  served:      { label: 'Entregado',   variant: 'gray' },
+  pending:   { label: 'Enviado',    variant: 'warning' },
+  preparing: { label: 'Preparando', variant: 'info' },
+  ready:     { label: 'Listo!',     variant: 'success' },
+  delivered: { label: 'Entregado',  variant: 'gray' },
 };
 
 // ─── Table Grid ───────────────────────────────────────────────────────────────
@@ -40,13 +39,13 @@ function TableGrid({ zones, onSelectTable }) {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
               {zone.tables.map((table) => {
-                const statusCfg  = TABLE_STATUS_CONFIG[table.status] ?? TABLE_STATUS_CONFIG.available;
+                const statusCfg   = TABLE_STATUS_CONFIG[table.status] ?? TABLE_STATUS_CONFIG.available;
                 const activeOrder = table.active_order;
                 return (
                   <button
                     key={table.id}
                     onClick={() => onSelectTable(table, zone)}
-                    disabled={table.status === 'inactive'}
+                    disabled={table.status === 'cleaning'}
                     className={`relative rounded-xl border-2 p-4 text-left transition-all hover:shadow-md hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed ${statusCfg.color}`}
                   >
                     <p className="text-2xl font-bold">#{table.number}</p>
@@ -61,10 +60,10 @@ function TableGrid({ zones, onSelectTable }) {
                         {activeOrder.status === 'ready' && (
                           <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" />
                         )}
-                        {['pending', 'confirmed'].includes(activeOrder.status) && (
+                        {activeOrder.status === 'pending' && (
                           <div className="w-3 h-3 bg-amber-400 rounded-full" />
                         )}
-                        {activeOrder.status === 'in_progress' && (
+                        {activeOrder.status === 'preparing' && (
                           <div className="w-3 h-3 bg-blue-400 rounded-full" />
                         )}
                       </div>
@@ -127,14 +126,13 @@ function NewOrderModal({ table, zone, open, onClose, onSubmit, menu, saving }) {
   const handleSubmit = () => {
     if (orderItems.length === 0) return;
     onSubmit({
-      restaurant_table_id: table.id,
-      type:  'dine_in',
-      notes: notes || undefined,
-      items: orderItems.map((i) => ({
-        product_name: i.product_name,
-        unit_price:   i.unit_price,
-        quantity:     i.quantity,
-        notes:        i.notes || undefined,
+      table_id: table.id,
+      type:     'dine_in',
+      notes:    notes || undefined,
+      items:    orderItems.map((i) => ({
+        product_id: i.product_id,
+        quantity:   i.quantity,
+        notes:      i.notes || undefined,
       })),
     });
   };
@@ -244,7 +242,7 @@ function NewOrderModal({ table, zone, open, onClose, onSubmit, menu, saving }) {
 
 // ─── Table Detail Modal ───────────────────────────────────────────────────────
 
-function TableDetailModal({ table, zone, open, onClose, onNewOrder, onMarkServed }) {
+function TableDetailModal({ table, zone, open, onClose, onNewOrder, onMarkDelivered }) {
   if (!table) return null;
   const activeOrder = table.active_order;
   const orderStatus = activeOrder ? ORDER_STATUS_CONFIG[activeOrder.status] : null;
@@ -282,9 +280,9 @@ function TableDetailModal({ table, zone, open, onClose, onNewOrder, onMarkServed
             </Button>
           )}
           {activeOrder?.status === 'ready' && (
-            <Button variant="success" onClick={() => onMarkServed(activeOrder.id)} className="w-full">
+            <Button variant="success" onClick={() => onMarkDelivered(activeOrder.id)} className="w-full">
               <CheckCircle2 className="w-4 h-4" />
-              Marcar como servido
+              Marcar como entregado
             </Button>
           )}
           <Button variant="secondary" onClick={onClose} className="w-full">Cerrar</Button>
@@ -298,44 +296,45 @@ function TableDetailModal({ table, zone, open, onClose, onNewOrder, onMarkServed
 
 export default function WaiterPage() {
   const { user } = useAuth();
-  const branchId  = user?.branch_id;
   const companyId = user?.company_id;
+  const branchId  = user?.branch_id;
 
-  const [zones, setZones] = useState([]);   // [{...zone, tables: [...]}]
-  const [menu, setMenu] = useState([]);
+  const [zones, setZones]   = useState([]);
+  const [menu, setMenu]     = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState(null);
 
   const [selectedTable, setSelectedTable] = useState(null);
   const [selectedZone,  setSelectedZone]  = useState(null);
-  const [showDetail, setShowDetail] = useState(false);
-  const [showNewOrder, setShowNewOrder] = useState(false);
+  const [showDetail,    setShowDetail]    = useState(false);
+  const [showNewOrder,  setShowNewOrder]  = useState(false);
+
+  const loadZonesWithTables = useCallback(async () => {
+    const zonesRes  = await getZones(companyId, branchId);
+    const zonesData = zonesRes.data.data || [];
+    return Promise.all(
+      zonesData
+        .filter((z) => z.status === 'active')
+        .map(async (zone) => {
+          try {
+            const tRes = await getTables(companyId, branchId, { table_zone_id: zone.id });
+            return { ...zone, tables: tRes.data.data || [] };
+          } catch {
+            return { ...zone, tables: [] };
+          }
+        })
+    );
+  }, [companyId, branchId]);
 
   const fetchData = useCallback(async () => {
-    if (!branchId) return;
+    if (!companyId || !branchId) return;
     try {
       setLoading(true);
-      const [zonesRes, productsRes] = await Promise.all([
-        getZones(branchId),
+      const [withTables, productsRes] = await Promise.all([
+        loadZonesWithTables(),
         getProducts(companyId, { per_page: 200, status: 'active' }),
       ]);
-      const zonesData = zonesRes.data.data || [];
-
-      // Load tables for each active zone
-      const withTables = await Promise.all(
-        zonesData
-          .filter((z) => z.status === 'active')
-          .map(async (zone) => {
-            try {
-              const tRes = await getTables(branchId, zone.id);
-              return { ...zone, tables: tRes.data.data || [] };
-            } catch {
-              return { ...zone, tables: [] };
-            }
-          })
-      );
-
       setZones(withTables);
       setMenu(productsRes.data.data || []);
     } catch {
@@ -343,36 +342,23 @@ export default function WaiterPage() {
     } finally {
       setLoading(false);
     }
-  }, [branchId, companyId]);
+  }, [companyId, branchId, loadZonesWithTables]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Auto-refresh tables every 15 s
   useEffect(() => {
-    if (!branchId) return;
+    if (!companyId || !branchId) return;
     const interval = setInterval(async () => {
       try {
-        const zonesRes  = await getZones(branchId);
-        const zonesData = zonesRes.data.data || [];
-        const withTables = await Promise.all(
-          zonesData
-            .filter((z) => z.status === 'active')
-            .map(async (zone) => {
-              try {
-                const tRes = await getTables(branchId, zone.id);
-                return { ...zone, tables: tRes.data.data || [] };
-              } catch {
-                return { ...zone, tables: [] };
-              }
-            })
-        );
+        const withTables = await loadZonesWithTables();
         setZones(withTables);
       } catch {
         // silent
       }
     }, 15000);
     return () => clearInterval(interval);
-  }, [branchId]);
+  }, [companyId, branchId, loadZonesWithTables]);
 
   const readyCount = zones
     .flatMap((z) => z.tables)
@@ -394,7 +380,7 @@ export default function WaiterPage() {
   const handleSubmitOrder = async (orderData) => {
     try {
       setSaving(true);
-      await createOrder(branchId, orderData);
+      await createOrder(companyId, branchId, orderData);
       setShowNewOrder(false);
       setSelectedTable(null);
       setSelectedZone(null);
@@ -406,13 +392,13 @@ export default function WaiterPage() {
     }
   };
 
-  const handleMarkServed = async (orderId) => {
+  const handleMarkDelivered = async (orderId) => {
     try {
-      await updateOrderStatus(branchId, orderId, 'served');
+      await updateOrderStatus(companyId, branchId, orderId, 'delivered');
       setShowDetail(false);
       await fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Error al marcar como servido');
+      setError(err.response?.data?.message || 'Error al marcar como entregado');
     }
   };
 
@@ -484,7 +470,7 @@ export default function WaiterPage() {
         open={showDetail}
         onClose={() => setShowDetail(false)}
         onNewOrder={handleNewOrder}
-        onMarkServed={handleMarkServed}
+        onMarkDelivered={handleMarkDelivered}
       />
       <NewOrderModal
         table={selectedTable}

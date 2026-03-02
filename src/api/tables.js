@@ -1,22 +1,22 @@
 import api from './axios';
 
-// ── Tables live under /branches/{branch}/zones/{zone}/tables ──────────────
+// Tables are a flat resource under /companies/{company}/branches/{branch}/tables
+// Use table_zone_id as a query param to filter by zone
 
-export const getTables = (branchId, zoneId, params = {}) =>
-  api.get(`/branches/${branchId}/zones/${zoneId}/tables`, { params });
+const base = (companyId, branchId) =>
+  `/companies/${companyId}/branches/${branchId}/tables`;
 
-export const getTable = (branchId, zoneId, tableId) =>
-  api.get(`/branches/${branchId}/zones/${zoneId}/tables/${tableId}`);
+export const getTables = (companyId, branchId, params = {}) =>
+  api.get(base(companyId, branchId), { params });
 
-export const createTable = (branchId, zoneId, data) =>
-  api.post(`/branches/${branchId}/zones/${zoneId}/tables`, data);
+export const getTable = (companyId, branchId, tableId) =>
+  api.get(`${base(companyId, branchId)}/${tableId}`);
 
-// Bulk creation: POST with { tables: [{number, capacity}, ...] }
-export const createTablesBulk = (branchId, zoneId, tables) =>
-  api.post(`/branches/${branchId}/zones/${zoneId}/tables`, { tables });
+export const createTable = (companyId, branchId, data) =>
+  api.post(base(companyId, branchId), data);
 
-export const updateTable = (branchId, zoneId, tableId, data) =>
-  api.put(`/branches/${branchId}/zones/${zoneId}/tables/${tableId}`, data);
+export const updateTable = (companyId, branchId, tableId, data) =>
+  api.put(`${base(companyId, branchId)}/${tableId}`, data);
 
-export const deleteTable = (branchId, zoneId, tableId) =>
-  api.delete(`/branches/${branchId}/zones/${zoneId}/tables/${tableId}`);
+export const deleteTable = (companyId, branchId, tableId) =>
+  api.delete(`${base(companyId, branchId)}/${tableId}`);

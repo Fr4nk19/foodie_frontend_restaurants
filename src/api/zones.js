@@ -1,16 +1,19 @@
 import api from './axios';
 
-export const getZones = (branchId, params = {}) =>
-  api.get(`/branches/${branchId}/zones`, { params });
+const base = (companyId, branchId) =>
+  `/companies/${companyId}/branches/${branchId}/zones`;
 
-export const getZone = (branchId, zoneId) =>
-  api.get(`/branches/${branchId}/zones/${zoneId}`);
+export const getZones = (companyId, branchId, params = {}) =>
+  api.get(base(companyId, branchId), { params });
 
-export const createZone = (branchId, data) =>
-  api.post(`/branches/${branchId}/zones`, data);
+export const getZone = (companyId, branchId, zoneId) =>
+  api.get(`${base(companyId, branchId)}/${zoneId}`);
 
-export const updateZone = (branchId, zoneId, data) =>
-  api.put(`/branches/${branchId}/zones/${zoneId}`, data);
+export const createZone = (companyId, branchId, data) =>
+  api.post(base(companyId, branchId), data);
 
-export const deleteZone = (branchId, zoneId) =>
-  api.delete(`/branches/${branchId}/zones/${zoneId}`);
+export const updateZone = (companyId, branchId, zoneId, data) =>
+  api.put(`${base(companyId, branchId)}/${zoneId}`, data);
+
+export const deleteZone = (companyId, branchId, zoneId) =>
+  api.delete(`${base(companyId, branchId)}/${zoneId}`);
