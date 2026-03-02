@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
@@ -8,42 +8,50 @@ import { useAuth } from '../../context/AuthContext';
 import { getOrders, updateOrderStatus } from '../../api/orders';
 
 const STATUS_TABS = [
-  { key: 'all', label: 'Todos' },
-  { key: 'pending', label: 'Pendientes' },
-  { key: 'preparing', label: 'Preparando' },
-  { key: 'ready', label: 'Listos' },
-  { key: 'delivered', label: 'Entregados' },
-  { key: 'cancelled', label: 'Cancelados' },
+  { key: 'all',         label: 'Todos' },
+  { key: 'pending',     label: 'Pendientes' },
+  { key: 'confirmed',   label: 'Confirmados' },
+  { key: 'in_progress', label: 'En cocina' },
+  { key: 'ready',       label: 'Listos' },
+  { key: 'served',      label: 'Servidos' },
+  { key: 'cancelled',   label: 'Cancelados' },
 ];
 
 const STATUS_MAP = {
-  pending: { label: 'Pendiente', variant: 'warning' },
-  preparing: { label: 'Preparando', variant: 'info' },
-  ready: { label: 'Listo', variant: 'success' },
-  delivered: { label: 'Entregado', variant: 'gray' },
-  cancelled: { label: 'Cancelado', variant: 'error' },
+  pending:     { label: 'Pendiente',  variant: 'warning' },
+  confirmed:   { label: 'Confirmado', variant: 'info' },
+  in_progress: { label: 'En cocina',  variant: 'info' },
+  ready:       { label: 'Listo',      variant: 'success' },
+  served:      { label: 'Servido',    variant: 'gray' },
+  cancelled:   { label: 'Cancelado',  variant: 'error' },
+};
+
+const NEXT_STATUS = {
+  pending:     'confirmed',
+  confirmed:   'in_progress',
+  in_progress: 'ready',
+  ready:       'served',
 };
 
 function OrderDetailModal({ order, onClose, onStatusChange }) {
   if (!order) return null;
-  const status = STATUS_MAP[order.status];
-
-  const NEXT_STATUS = {
-    pending: 'preparing',
-    preparing: 'ready',
-    ready: 'delivered',
-  };
+  const status     = STATUS_MAP[order.status] ?? { label: order.status, variant: 'gray' };
   const nextStatus = NEXT_STATUS[order.status];
-  const nextLabel = nextStatus ? STATUS_MAP[nextStatus]?.label : null;
+  const nextLabel  = nextStatus ? STATUS_MAP[nextStatus]?.label : null;
 
-  const tableName = order.table ? `Mesa ${order.table.number}` : (order.type === 'takeout' ? 'Para llevar' : 'Delivery');
+  const tableName = order.table
+    ? `Mesa ${order.table.number}${order.table.zone ? ` · ${order.table.zone.name}` : ''}`
+    : order.type === 'takeout' ? 'Para llevar' : 'Delivery';
+
   const waiterName = order.waiter?.name || '—';
-  const orderTime = order.created_at ? new Date(order.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : '';
+  const orderTime  = order.created_at
+    ? new Date(order.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+    : '';
   const items = order.items || [];
   const total = Number(order.total) || 0;
 
   return (
-    <Modal open={Boolean(order)} onClose={onClose} title={`Pedido #${order.id} – ${tableName}`} size="md">
+    <Modal open={Boolean(order)} onClose={onClose} title={`${order.code ?? `Orden #${order.id}`} – ${tableName}`} size="md">
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
@@ -57,36 +65,44 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
           <p className="text-sm font-medium text-gray-700 mb-2">Productos</p>
           <div className="border border-gray-100 rounded-lg overflow-hidden">
             {items.map((item) => (
-              <div key={item.id} className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-0 text-sm">
-                <span className="text-gray-900">{item.quantity}x {item.product?.nombre || 'Producto'}</span>
-                <span className="text-gray-600 font-medium">${Number(item.subtotal).toFixed(2)}</span>
+              <div key={item.id} className="flex items-start justify-between px-4 py-2.5 border-b border-gray-100 last:border-0 text-sm">
+                <div className="flex-1 min-w-0">
+                  <span className="text-gray-900">{item.quantity}x {item.product_name}</span>
+                  {item.notes && <p className="text-xs text-amber-600 mt-0.5">Nota: {item.notes}</p>}
+                </div>
+                <span className="text-gray-600 font-medium ml-4">${Number(item.subtotal).toFixed(2)}</span>
               </div>
             ))}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 text-xs text-gray-500 border-b border-gray-100">
+              <span>Subtotal</span><span>${Number(order.subtotal).toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 text-xs text-gray-500 border-b border-gray-100">
+              <span>IVA (13%)</span><span>${Number(order.tax).toFixed(2)}</span>
+            </div>
             <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 text-sm font-semibold">
-              <span>Total</span>
-              <span>${total.toFixed(2)}</span>
+              <span>Total</span><span>${total.toFixed(2)}</span>
             </div>
           </div>
         </div>
 
-        {nextStatus && (
-          <Button
-            variant="primary"
-            onClick={() => onStatusChange(order.id, nextStatus)}
-            className="w-full"
-          >
-            Marcar como: {nextLabel}
-          </Button>
+        {order.notes && (
+          <div className="text-sm bg-amber-50 border border-amber-100 text-amber-700 px-3 py-2 rounded-lg">
+            Nota: {order.notes}
+          </div>
         )}
-        {order.status !== 'cancelled' && order.status !== 'delivered' && (
-          <Button
-            variant="danger"
-            onClick={() => onStatusChange(order.id, 'cancelled')}
-            className="w-full"
-          >
-            Cancelar pedido
-          </Button>
-        )}
+
+        <div className="flex flex-col gap-2">
+          {nextStatus && (
+            <Button variant="primary" onClick={() => onStatusChange(order.id, nextStatus)} className="w-full">
+              Marcar como: {nextLabel}
+            </Button>
+          )}
+          {!['served', 'cancelled'].includes(order.status) && (
+            <Button variant="danger" onClick={() => onStatusChange(order.id, 'cancelled')} className="w-full">
+              Cancelar orden
+            </Button>
+          )}
+        </div>
       </div>
     </Modal>
   );
@@ -94,7 +110,6 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
 
 export default function AdminOrdersPage() {
   const { user } = useAuth();
-  const companyId = user?.company_id;
   const branchId = user?.branch_id;
 
   const [activeTab, setActiveTab] = useState('all');
@@ -104,27 +119,25 @@ export default function AdminOrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState(null);
 
   const fetchOrders = useCallback(async () => {
-    if (!companyId || !branchId) return;
+    if (!branchId) return;
     try {
       setLoading(true);
-      const res = await getOrders(companyId, branchId, { per_page: 100, today: 1 });
+      const res = await getOrders(branchId, { per_page: 100 });
       setOrders(res.data.data || []);
     } catch {
       setError('No se pudieron cargar los pedidos');
     } finally {
       setLoading(false);
     }
-  }, [companyId, branchId]);
+  }, [branchId]);
 
-  useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
   const filtered = activeTab === 'all' ? orders : orders.filter((o) => o.status === activeTab);
 
   const handleStatusChange = async (orderId, newStatus) => {
     try {
-      await updateOrderStatus(companyId, branchId, orderId, newStatus);
+      await updateOrderStatus(branchId, orderId, newStatus);
       setSelectedOrder(null);
       await fetchOrders();
     } catch (err) {
@@ -142,21 +155,17 @@ export default function AdminOrdersPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Pedidos</h1>
           <p className="text-gray-500 mt-1">Gestión de todos los pedidos del restaurante</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={fetchOrders}>
-            <RefreshCw className="w-4 h-4" />
-            Actualizar
-          </Button>
-        </div>
+        <Button variant="secondary" size="sm" onClick={fetchOrders}>
+          <RefreshCw className="w-4 h-4" />
+          Actualizar
+        </Button>
       </div>
 
-      {/* Error */}
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg flex items-center justify-between">
           <span>{error}</span>
@@ -191,7 +200,7 @@ export default function AdminOrdersPage() {
         })}
       </div>
 
-      {/* Orders list */}
+      {/* Orders grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.length === 0 && (
           <div className="col-span-full text-center py-12 text-gray-400">
@@ -199,10 +208,14 @@ export default function AdminOrdersPage() {
           </div>
         )}
         {filtered.map((order) => {
-          const status = STATUS_MAP[order.status];
-          const tableName = order.table ? `Mesa ${order.table.number}` : (order.type === 'takeout' ? 'Para llevar' : 'Delivery');
+          const status    = STATUS_MAP[order.status] ?? { label: order.status, variant: 'gray' };
+          const tableName = order.table
+            ? `Mesa ${order.table.number}${order.table.zone ? ` · ${order.table.zone.name}` : ''}`
+            : order.type === 'takeout' ? 'Para llevar' : 'Delivery';
           const waiterName = order.waiter?.name || '—';
-          const orderTime = order.created_at ? new Date(order.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : '';
+          const orderTime  = order.created_at
+            ? new Date(order.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+            : '';
           const items = order.items || [];
           const total = Number(order.total) || 0;
 
@@ -221,14 +234,12 @@ export default function AdminOrdersPage() {
               </div>
               <div className="text-sm text-gray-600 mb-3">
                 {items.slice(0, 2).map((item) => (
-                  <p key={item.id}>{item.quantity}x {item.product?.nombre || 'Producto'}</p>
+                  <p key={item.id}>{item.quantity}x {item.product_name}</p>
                 ))}
-                {items.length > 2 && (
-                  <p className="text-gray-400">+{items.length - 2} más</p>
-                )}
+                {items.length > 2 && <p className="text-gray-400">+{items.length - 2} más</p>}
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                <p className="text-xs text-gray-400">#{order.id}</p>
+                <p className="text-xs text-gray-400">{order.code ?? `#${order.id}`}</p>
                 <p className="font-semibold text-gray-900">${total.toFixed(2)}</p>
               </div>
             </button>
