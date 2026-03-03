@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Users, ShoppingBag, Truck, MapPin, Phone } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
@@ -16,12 +16,25 @@ const STATUS_TABS = [
   { key: 'cancelled', label: 'Cancelados' },
 ];
 
+const TYPE_FILTERS = [
+  { key: 'all',      label: 'Todos los tipos' },
+  { key: 'dine_in',  label: 'Mesa' },
+  { key: 'takeout',  label: 'Para llevar' },
+  { key: 'delivery', label: 'Con envío' },
+];
+
 const STATUS_MAP = {
   pending:   { label: 'Pendiente',  variant: 'warning' },
   preparing: { label: 'En cocina',  variant: 'info' },
   ready:     { label: 'Listo',      variant: 'success' },
   delivered: { label: 'Entregado',  variant: 'gray' },
   cancelled: { label: 'Cancelado',  variant: 'error' },
+};
+
+const TYPE_MAP = {
+  dine_in:  { label: 'Mesa',        Icon: Users,       variant: 'info'   },
+  takeout:  { label: 'Para llevar', Icon: ShoppingBag, variant: 'orange' },
+  delivery: { label: 'Con envío',   Icon: Truck,       variant: 'purple' },
 };
 
 const NEXT_STATUS = {
@@ -33,12 +46,14 @@ const NEXT_STATUS = {
 function OrderDetailModal({ order, onClose, onStatusChange }) {
   if (!order) return null;
   const status     = STATUS_MAP[order.status] ?? { label: order.status, variant: 'gray' };
+  const typeInfo   = TYPE_MAP[order.type]    ?? TYPE_MAP.dine_in;
+  const TypeIcon   = typeInfo.Icon;
   const nextStatus = NEXT_STATUS[order.status];
   const nextLabel  = nextStatus ? STATUS_MAP[nextStatus]?.label : null;
 
-  const tableName = order.table
+  const locationLabel = order.table
     ? `Mesa ${order.table.number}${order.table.table_zone ? ` · ${order.table.table_zone.name}` : ''}`
-    : order.type === 'takeout' ? 'Para llevar' : 'Delivery';
+    : typeInfo.label;
 
   const waiterName = order.waiter?.name || '—';
   const orderTime  = order.created_at
@@ -48,15 +63,43 @@ function OrderDetailModal({ order, onClose, onStatusChange }) {
   const total = Number(order.total) || 0;
 
   return (
-    <Modal open={Boolean(order)} onClose={onClose} title={`${order.code ?? `Orden #${order.id}`} – ${tableName}`} size="md">
+    <Modal open={Boolean(order)} onClose={onClose} title={`${order.code ?? `Orden #${order.id}`} – ${locationLabel}`} size="md">
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <div>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <TypeIcon className="w-4 h-4 text-gray-400" />
+              <Badge variant={typeInfo.variant}>{typeInfo.label}</Badge>
+            </div>
             <p className="text-sm text-gray-500">Mesero: <span className="font-medium text-gray-900">{waiterName}</span></p>
             <p className="text-sm text-gray-500">Hora: <span className="font-medium text-gray-900">{orderTime}</span></p>
           </div>
           <Badge variant={status.variant}>{status.label}</Badge>
         </div>
+
+        {/* Customer info for takeout / delivery */}
+        {(order.customer_name || order.customer_phone || order.delivery_address) && (
+          <div className="bg-gray-50 rounded-lg px-4 py-3 flex flex-col gap-1.5 text-sm">
+            {order.customer_name && (
+              <div className="flex items-center gap-2 text-gray-700">
+                <Users className="w-4 h-4 text-gray-400" />
+                {order.customer_name}
+              </div>
+            )}
+            {order.customer_phone && (
+              <div className="flex items-center gap-2 text-gray-700">
+                <Phone className="w-4 h-4 text-gray-400" />
+                {order.customer_phone}
+              </div>
+            )}
+            {order.delivery_address && (
+              <div className="flex items-start gap-2 text-gray-700">
+                <MapPin className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                {order.delivery_address}
+              </div>
+            )}
+          </div>
+        )}
 
         <div>
           <p className="text-sm font-medium text-gray-700 mb-2">Productos</p>
@@ -110,10 +153,11 @@ export default function AdminOrdersPage() {
   const companyId = user?.company_id;
   const branchId  = user?.branch_id;
 
-  const [activeTab, setActiveTab] = useState('all');
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [activeTab,   setActiveTab]   = useState('all');
+  const [activeType,  setActiveType]  = useState('all');
+  const [orders, setOrders]           = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
   const fetchOrders = useCallback(async () => {
@@ -131,7 +175,9 @@ export default function AdminOrdersPage() {
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
-  const filtered = activeTab === 'all' ? orders : orders.filter((o) => o.status === activeTab);
+  const filtered = orders
+    .filter((o) => activeTab === 'all'  || o.status === activeTab)
+    .filter((o) => activeType === 'all' || o.type   === activeType);
 
   const handleStatusChange = async (orderId, newStatus) => {
     try {
@@ -171,8 +217,8 @@ export default function AdminOrdersPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
+      {/* Status tabs */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-3 overflow-x-auto">
         {STATUS_TABS.map((tab) => {
           const count = tab.key === 'all' ? orders.length : orders.filter((o) => o.status === tab.key).length;
           return (
@@ -198,6 +244,31 @@ export default function AdminOrdersPage() {
         })}
       </div>
 
+      {/* Type filter */}
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {TYPE_FILTERS.map((tf) => {
+          const TypeIcon = tf.key !== 'all' ? TYPE_MAP[tf.key]?.Icon : null;
+          const count    = tf.key === 'all' ? orders.length : orders.filter((o) => o.type === tf.key).length;
+          return (
+            <button
+              key={tf.key}
+              onClick={() => setActiveType(tf.key)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all ${
+                activeType === tf.key
+                  ? 'border-brand-400 bg-brand-50 text-brand-700'
+                  : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {TypeIcon && <TypeIcon className="w-3.5 h-3.5" />}
+              {tf.label}
+              {count > 0 && (
+                <span className="ml-0.5 text-xs opacity-70">({count})</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Orders grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.length === 0 && (
@@ -206,10 +277,14 @@ export default function AdminOrdersPage() {
           </div>
         )}
         {filtered.map((order) => {
-          const status    = STATUS_MAP[order.status] ?? { label: order.status, variant: 'gray' };
-          const tableName = order.table
+          const status   = STATUS_MAP[order.status] ?? { label: order.status, variant: 'gray' };
+          const typeInfo = TYPE_MAP[order.type]     ?? TYPE_MAP.dine_in;
+          const TypeIcon = typeInfo.Icon;
+
+          const locationLabel = order.table
             ? `Mesa ${order.table.number}${order.table.table_zone ? ` · ${order.table.table_zone.name}` : ''}`
-            : order.type === 'takeout' ? 'Para llevar' : 'Delivery';
+            : typeInfo.label;
+
           const waiterName = order.waiter?.name || '—';
           const orderTime  = order.created_at
             ? new Date(order.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
@@ -225,10 +300,19 @@ export default function AdminOrdersPage() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <p className="font-semibold text-gray-900">{tableName}</p>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <TypeIcon className="w-3.5 h-3.5 text-gray-400" />
+                    <p className="font-semibold text-gray-900">{locationLabel}</p>
+                  </div>
+                  {order.customer_name && (
+                    <p className="text-xs text-gray-500">{order.customer_name}</p>
+                  )}
                   <p className="text-xs text-gray-400">{waiterName} · {orderTime}</p>
                 </div>
-                <Badge variant={status.variant}>{status.label}</Badge>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge variant={status.variant}>{status.label}</Badge>
+                  <Badge variant={typeInfo.variant}>{typeInfo.label}</Badge>
+                </div>
               </div>
               <div className="text-sm text-gray-600 mb-3">
                 {items.slice(0, 2).map((item) => (
@@ -236,6 +320,12 @@ export default function AdminOrdersPage() {
                 ))}
                 {items.length > 2 && <p className="text-gray-400">+{items.length - 2} más</p>}
               </div>
+              {order.delivery_address && (
+                <div className="flex items-center gap-1 text-xs text-purple-600 mb-2">
+                  <MapPin className="w-3 h-3" />
+                  <span className="truncate">{order.delivery_address}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between pt-3 border-t border-gray-100">
                 <p className="text-xs text-gray-400">{order.code ?? `#${order.id}`}</p>
                 <p className="font-semibold text-gray-900">${total.toFixed(2)}</p>
